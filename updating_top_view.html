@@ -1,0 +1,1122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NYC 3D Character Simulation - Top Down View</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:,">
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #map { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+    #simulationCanvas { width: 100%; height: 100%; }
+    .button { position: absolute; padding: 10px 20px; background: #ff6b6b; color: #fff; border: none; border-radius: 5px; cursor: pointer; z-index: 10; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: all 0.3s ease; }
+    .button:hover { background: #ff8787; transform: translateY(-2px); }
+    #startBtn { top: 20px; left: 20px; }
+    #resetBtn { top: 20px; left: 140px; }
+    #viewToggleBtn { top: 20px; left: 260px; }
+    #debug { position: absolute; bottom: 10px; right: 10px; background: rgba(255,255,255,0.8); color: #333; padding: 10px; border-radius: 5px; font-family: monospace; z-index: 10; max-width: 400px; max-height: 200px; overflow-y: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255,255,255,0.9); color: #333; padding: 20px; border-radius: 10px; z-index: 20; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+    .spinner { width: 40px; height: 40px; border: 4px solid rgba(75,192,192,0.3); border-top: 4px solid #4bc0c0; border-radius: 50%; margin: 0 auto 10px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .sidebar { position: fixed; top: 0; left: -300px; width: 300px; height: 100%; background-color: rgba(255, 255, 255, 0.95); z-index: 1000; transition: all 0.3s ease; box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1); padding: 20px; box-sizing: border-box; overflow-y: auto; }
+    .sidebar.active { left: 0; }
+    .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+    .sidebar-title { font-size: 22px; font-weight: bold; color: #333; }
+    .sidebar-close { font-size: 24px; cursor: pointer; color: #555; }
+    .sidebar-section { margin-bottom: 25px; }
+    .sidebar-section-title { font-size: 16px; font-weight: bold; margin-bottom: 12px; color: #444; }
+    .sidebar-input-group { margin-bottom: 15px; }
+    .sidebar-input-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #555; }
+    .sidebar-input-group input[type="number"], .sidebar-input-group input[type="file"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+    .sidebar-input-group input[type="file"] { padding: 8px; background-color: #f9f9f9; }
+    .sidebar-apply-btn { width: 100%; padding: 12px; background-color: #4285F4; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 15px; transition: background-color 0.2s; }
+    .sidebar-apply-btn:hover { background-color: #3367D6; }
+    .hamburger-btn { position: fixed; top: 20px; left: 20px; width: 40px; height: 40px; background-color: #4285F4; border-radius: 5px; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; z-index: 999; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2); transition: background-color 0.2s; }
+    .hamburger-btn:hover { background-color: #3367D6; }
+    .hamburger-bar { width: 24px; height: 3px; background-color: white; margin: 2.5px 0; border-radius: 3px; transition: 0.3s; }
+  </style>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet"/>
+</head>
+<body>
+  <div class="hamburger-btn" id="sidebar-toggle">
+    <div class="hamburger-bar"></div><div class="hamburger-bar"></div><div class="hamburger-bar"></div>
+  </div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header"><div class="sidebar-title">Settings</div><div class="sidebar-close" id="sidebar-close">×</div></div>
+    <div class="sidebar-section"><div class="sidebar-section-title">File Upload</div><div class="sidebar-input-group"><label for="model-file">Upload CSV File</label><input type="file" id="model-file" accept=".csv"><small style="display: block; margin-top: 5px; color: #666;">Accepted format: CSV</small></div></div>
+    <div class="sidebar-section"><div class="sidebar-section-title">Agent Configuration</div><div class="sidebar-input-group"><label for="blue-agents">Blue Agents Number</label><input type="number" id="blue-agents" min="1" max="20" value="1"></div></div>
+    <button class="sidebar-apply-btn" id="apply-settings">Apply Changes</button>
+  </div>
+  <div id="map"></div>
+  <div id="canvas-container">
+    <div id="simulationCanvas"></div>
+  </div>
+  <button id="startBtn" class="button">Start Simulation</button>
+  <button id="resetBtn" class="button">Reset View</button>
+  <button id="viewToggleBtn" class="button">Toggle Top-Down View</button>
+  <div id="debug">Ready to start</div>
+  <div id="loader">
+    <div class="spinner"></div>
+    <div>Loading 3D assets...</div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.147.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.147.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+  import * as THREE from 'three';
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  
+  window.THREE = THREE;
+  const startCoord = [-74.0090, 40.7069];
+  const endCoord = [-73.9855, 40.7580];
+  let map, scene, camera, renderer, mixer, clock, controls;
+  let characterModel = null;
+  let animationAction = null;
+  let animationSpeed = 0.00515;
+  let characterScale = 20;
+  let modelLoaded = false;
+  let animationId = null;
+  let isTopDownView = true;
+  let debugEl = document.getElementById('debug');
+  let routePoints = [];
+  let csvPath = [];
+  let csvData = [];
+
+  const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiY2hhcmFuazE4IiwiYSI6ImNtYWgzd3pyOTA3Mzcya3F6OTloZXl5ZXQifQ.USlUIADcQtOXklgQE6nKpg';
+  const GRAPHHOPPER_API_KEY = 'bbc248b1-d3e1-4339-bc70-daf704c6cb82';
+  const GRAPHHOPPER_API_URL = 'https://graphhopper.com/api/1/route';
+  
+  function calculateDistance(lng1, lat1, lng2, lat2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2); 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    return R * c;
+  }
+
+  function updateDebug(message) {
+    debugEl.innerHTML = message;
+    console.log(message);
+  }
+  
+  function lngLatToWorld(lng, lat) {
+    const scale = 100000;
+    return new THREE.Vector3((lng + 74.0060) * scale, 0, (lat - 40.7128) * scale);
+  }
+  
+  async function geocodeLocation(location) {
+    if (!location || location.trim() === '' || location === ',' || location.includes(',,')) {
+      updateDebug(`⚠️ Skipping invalid location: "${location}"`);
+      return null;
+    }
+    
+    const searchParams = {
+      bbox: "-74.3,40.5,-73.6,41.0",
+      proximity: "-74.0060,40.7128",
+      types: "address,poi,place",
+      limit: 10
+    };
+    
+    let searchLocation = location;
+    
+    if (location.toLowerCase().includes('apollo') && location.toLowerCase().includes('theater')) {
+      searchLocation = location + " 125th Street Harlem New York";
+    }
+    else if (location.toLowerCase().includes('jfk') || 
+             location.toLowerCase().includes('kennedy airport') ||
+             location.toLowerCase().includes('john f kennedy')) {
+      searchLocation = location + " Queens New York Airport";
+    }
+    else if (location.toLowerCase().includes('la guardia') || 
+             location.toLowerCase().includes('laguardia')) {
+      searchLocation = location + " Queens New York Airport";
+    }
+    else if (!location.toLowerCase().includes('new york')) {
+      searchLocation = location + " New York";
+    }
+    
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchLocation)}.json?access_token=${MAPBOX_ACCESS_TOKEN}&limit=10&bbox=${searchParams.bbox}&proximity=${searchParams.proximity}&types=${searchParams.types}`;
+    
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.features && data.features.length > 0) {
+        const filteredFeatures = data.features.filter(feature => {
+          const isWaterRelated = 
+            (feature.place_name && (
+              feature.place_name.toLowerCase().includes("river") ||
+              feature.place_name.toLowerCase().includes("bay") ||
+              feature.place_name.toLowerCase().includes("harbor") ||
+              feature.place_name.toLowerCase().includes("pond") ||
+              feature.place_name.toLowerCase().includes("lake")
+            )) ||
+            (feature.properties && feature.properties.category === "water") ||
+            (feature.place_type && feature.place_type.includes("water"));
+          
+          return !isWaterRelated;
+        });
+        
+        const scoredFeatures = filteredFeatures.map(feature => {
+          let score = 0;
+          
+          if (feature.place_type && feature.place_type.includes("poi")) {
+            score += 20;
+          }
+          
+          if (feature.text && location.toLowerCase().includes(feature.text.toLowerCase())) {
+            score += 30;
+          } else if (feature.text && feature.text.toLowerCase().includes(location.toLowerCase())) {
+            score += 25;
+          }
+          
+          if (feature.place_type && feature.place_type.includes("address") && 
+              (location.toLowerCase().includes("street") || location.toLowerCase().includes("avenue"))) {
+            score += 15;
+          }
+          
+          if (feature.properties && 
+              feature.properties.landmark && 
+              (location.toLowerCase().includes("theater") || 
+               location.toLowerCase().includes("museum") || 
+               location.toLowerCase().includes("stadium"))) {
+            score += 25;
+          }
+          
+          const placeName = feature.place_name?.toLowerCase() || '';
+          
+          if (placeName.includes("new york")) {
+            score += 50;
+          }
+          
+          if (location.toLowerCase().includes('apollo') && location.toLowerCase().includes('theater')) {
+            if (placeName.includes("harlem") || placeName.includes("125th")) {
+              score += 40;
+            }
+          }
+          
+          if ((location.toLowerCase().includes('jfk') || 
+               location.toLowerCase().includes('kennedy') || 
+               location.toLowerCase().includes('john f kennedy')) &&
+              (placeName.includes("airport") && placeName.includes("queens"))) {
+            score += 40;
+          }
+          
+          if ((location.toLowerCase().includes('la guardia') || 
+               location.toLowerCase().includes('laguardia')) &&
+              (placeName.includes("airport") && placeName.includes("queens"))) {
+            score += 40;
+          }
+          
+          if (feature.text && feature.text.toLowerCase() === location.toLowerCase()) {
+            score += 50;
+          }
+                    
+          return { feature, score };
+        }).sort((a, b) => b.score - a.score);
+        
+        if (scoredFeatures.length > 0) {
+          const bestMatch = scoredFeatures[0].feature;
+          const [lng, lat] = bestMatch.center;
+          updateDebug(`✅ Geocoded ${location} to [${lng}, ${lat}]`);
+          return [lng, lat];
+        } else {
+          const [lng, lat] = data.features[0].center;
+          updateDebug(`⚠️ Using best available location for ${location}, but it might be near water`);
+          return [lng, lat];
+        }
+      } else {
+        throw new Error(`No coordinates found for ${location}`);
+      }
+    } catch (error) {
+      updateDebug(`❌ Geocoding error for ${location}: ${error.message}`);
+      return null;    
+    }
+  }
+  
+  async function getRoute(start, end) {
+    const distanceKm = calculateDistance(start[0], start[1], end[0], end[1]);
+    
+    let routingProfile;
+    
+    if (distanceKm > 10) {
+      routingProfile = 'driving';
+    } else {
+      routingProfile = 'walking';
+    }
+    
+    const url = `https://api.mapbox.com/directions/v5/mapbox/${routingProfile}/${start[0]},${start[1]};${end[0]},${end[1]}?steps=true&geometries=geojson&alternatives=true&continue_straight=true&exclude=ferry&waypoints_per_route=true&access_token=${MAPBOX_ACCESS_TOKEN}`;
+    
+    try {
+      updateDebug("Fetching strict road-based route from Mapbox...");
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.routes && data.routes[0] && data.routes[0].geometry.coordinates) {
+        let routeCrossesWater = false;
+        
+        if (data.routes[0].legs && data.routes[0].legs[0] && data.routes[0].legs[0].steps) {
+          const steps = data.routes[0].legs[0].steps;
+          for (const step of steps) {
+            if (step.maneuver && step.maneuver.instruction) {
+              const instruction = step.maneuver.instruction.toLowerCase();
+              if (instruction.includes('ferry') || 
+                  instruction.includes('boat') || 
+                  instruction.includes('water') ||
+                  (step.name && (step.name.toLowerCase().includes('ferry') || step.name.toLowerCase().includes('river')))) {
+                routeCrossesWater = true;
+                break;
+              }
+            }
+          }
+        }
+        
+        if (routeCrossesWater && data.routes.length > 1) {
+          updateDebug("⚠️ Primary route crosses water, trying alternative route...");
+          routePoints = data.routes[1].geometry.coordinates;
+        } else {
+          routePoints = data.routes[0].geometry.coordinates;
+        }
+        
+        updateDebug(`✅ Strict road-based route fetched with ${routePoints.length} points`);
+        return routePoints;
+      } else {
+        throw new Error('No route found in response');
+      }
+    } catch (error) {
+      console.error('Error fetching route:', error);
+      updateDebug('❌ Failed to fetch road-based route. Trying alternative approach...');
+      
+      try {
+        const fallbackUrl = `https://api.mapbox.com/directions/v5/mapbox/driving-walking/${start[0]},${start[1]};${end[0]},${end[1]}?steps=false&geometries=geojson&exclude=ferry&access_token=${MAPBOX_ACCESS_TOKEN}`;
+        const fallbackResponse = await fetch(fallbackUrl);
+        const fallbackData = await fallbackResponse.json();
+        
+        if (fallbackData.routes && fallbackData.routes[0] && fallbackData.routes[0].geometry.coordinates) {
+          updateDebug("✅ Found alternative road-based route");
+          return fallbackData.routes[0].geometry.coordinates;
+        }
+      } catch (fallbackError) {
+        console.error('Fallback routing failed:', fallbackError);
+      }
+      
+      updateDebug('⚠️ Using direct path with intermediate points');
+      const directPath = [];
+      directPath.push(start);
+      
+      const latDiff = (end[1] - start[1]) / 2;
+      const lngDiff = (end[0] - start[0]) / 2;
+      
+      directPath.push([start[0] + lngDiff, start[1]]);
+      directPath.push([start[0] + lngDiff, start[1] + latDiff]);
+      directPath.push(end);
+      
+      return directPath;
+    }
+  }
+
+  async function parseCSV(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target.result;
+        const rows = text.split('\n')
+          .map(row => row.trim())
+          .filter(row => row && !row.startsWith('<DOCUMENT') && !row.endsWith('</DOCUMENT>'))
+          .map(row => {
+            return row.split(',')
+              .map(cell => cell.trim())
+              .filter(cell => cell.length > 0);
+          });
+          
+        window.csvData = rows;
+        csvPath = [];
+        
+        updateDebug(`✅ CSV parsed with ${rows.length} rows of location names`);
+        resolve();
+      };
+      reader.onerror = () => reject(new Error('Failed to read CSV file'));
+      reader.readAsText(file);
+    });
+  }
+
+  function initScene() {
+    updateDebug("Initializing 3D scene with top-down view...");
+    
+    scene = new THREE.Scene();
+    
+    const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
+    scene.add(ambientLight);
+    
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0);
+    directionalLight.position.set(0, 100, 100);
+    directionalLight.castShadow = true;
+    scene.add(directionalLight);
+    
+    camera = new THREE.OrthographicCamera(
+      window.innerWidth / -2, window.innerWidth / 2,
+      window.innerHeight / 2, window.innerHeight / -2,
+      1, 10000
+    );
+    
+    camera.position.set(0, 500, 0);
+    camera.lookAt(0, 0, 0);
+    camera.zoom = 0.5;
+    camera.updateProjectionMatrix();
+    
+    renderer = new THREE.WebGLRenderer({ 
+      antialias: true, 
+      alpha: true,
+      canvas: document.createElement('canvas')
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.getElementById('simulationCanvas').appendChild(renderer.domElement);
+    
+    clock = new THREE.Clock();
+
+    loadCharacterModel();
+    
+    renderer.setAnimationLoop(render);
+  }
+  
+  function render() {
+    controls?.update();
+    
+    if (mixer) {
+      const delta = clock.getDelta();
+      mixer.update(delta);
+    }
+    
+    renderer.render(scene, camera);
+  }
+  
+  function loadCharacterModel() {
+    updateDebug("Loading 3D character model...");
+
+    const loadingManager = new THREE.LoadingManager(
+        () => {
+            document.getElementById('loader').style.display = 'none';
+            updateDebug("✅ All assets loaded successfully");
+        },
+        (url, itemsLoaded, itemsTotal) => {
+            const progress = (itemsLoaded / itemsTotal * 100).toFixed(0);
+            updateDebug(`Loading: ${progress}% (${url})`);
+        },
+        (url) => {
+            console.error('Error loading', url);
+            updateDebug(`❌ Error loading ${url}`);
+        }
+    );
+
+    const loader = new GLTFLoader(loadingManager);
+
+    loader.load(
+        './models/agent2.glb',
+        (gltf) => {
+            updateDebug("✅ Model loaded, setting up character...");
+
+            // Setup character model
+            characterModel = gltf.scene;
+
+            // Set realistic human scale
+            characterModel.scale.set(characterScale, characterScale, characterScale);
+
+            // Enable shadows and improve materials
+            characterModel.traverse((node) => {
+                if (node.isMesh) {
+                    node.castShadow = true;
+                    node.receiveShadow = true;
+                    if (node.material) {
+                        node.material.transparent = false;
+                        node.material.opacity = 1.0;
+                    }
+                }
+            });
+
+            // Add to scene
+            scene.add(characterModel);
+
+            // Position character at street level
+            characterModel.position.set(0, 2, 0);
+
+            // Setup animation
+            mixer = new THREE.AnimationMixer(characterModel);
+            if (gltf.animations && gltf.animations.length > 0) {
+                updateDebug(`Found ${gltf.animations.length} animations`);
+                animationAction = mixer.clipAction(gltf.animations[0]);
+                animationAction.timeScale = 1.0;
+                animationAction.play();
+            }
+
+            modelLoaded = true;
+
+            // Center camera on character
+            camera.position.set(0, 500, 0);
+            camera.lookAt(characterModel.position);
+
+            // Update controls
+            controls.target.copy(characterModel.position);
+            controls.update();
+        },
+        (xhr) => {
+            const percent = xhr.loaded / xhr.total * 100;
+            updateDebug(`Loading model: ${percent.toFixed(1)}% complete`);
+        },
+        (error) => {
+            console.error('Error loading model:', error);
+            updateDebug("❌ Failed to load model. Character will not appear.");
+        }
+    );
+  }
+  
+  function createFallbackModel() {
+    updateDebug("Creating fallback model");
+    
+    const group = new THREE.Group();
+    
+    const bodyGeometry = new THREE.BoxGeometry(10, 20, 5);
+    const bodyMaterial = new THREE.MeshPhongMaterial({ 
+      color: 0x4bc0c0,
+      emissive: 0x2a6a6a,
+      emissiveIntensity: 0.5
+    });
+    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+    group.add(body);
+    
+    const headGeometry = new THREE.SphereGeometry(6, 16, 16);
+    const headMaterial = new THREE.MeshPhongMaterial({ 
+      color: 0xff9f43,
+      emissive: 0x996527,
+      emissiveIntensity: 0.5
+    });
+    const head = new THREE.Mesh(headGeometry, headMaterial);
+    head.position.set(0, 16, 0);
+    group.add(head);
+    
+    const coneGeometry = new THREE.ConeGeometry(4, 10, 16);
+    const coneMaterial = new THREE.MeshPhongMaterial({ 
+      color: 0xa29bfe,
+      emissive: 0x6157ab,
+      emissiveIntensity: 0.5
+    });
+    const cone = new THREE.Mesh(coneGeometry, coneMaterial);
+    cone.position.set(0, 0, 8);
+    cone.rotation.x = Math.PI / 2;
+    group.add(cone);
+    
+    group.scale.set(1, 1, 1);
+    scene.add(group);
+    
+    characterModel = group;
+    characterModel.position.y = 5;
+    
+    mixer = {
+      update: (delta) => {
+        if (characterModel) {
+          characterModel.position.y = 5 + Math.sin(Date.now() * 0.003) * 0.5;
+        }
+      }
+    };
+    
+    modelLoaded = true;
+    document.getElementById('loader').style.display = 'none';
+    updateDebug("✅ Fallback model created");
+  }
+
+  function setupMap() {
+    updateDebug("Setting up MapBox with top-down view...");
+    
+    mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+    map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      center: startCoord,
+      zoom: 16,
+      pitch: 0,
+      bearing: 0,
+      antialias: true
+    });
+    
+    map.addControl(new mapboxgl.NavigationControl());
+    
+    map.on('load', async () => {
+      if (routePoints.length === 0) {
+        routePoints = await getRoute(startCoord, endCoord);
+      }
+      
+      map.addSource('mapbox-dem', {
+        'type': 'raster-dem',
+        'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+        'tileSize': 512,
+        'maxzoom': 14
+      });
+      
+      map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+      createFallbackBuildingTextures();
+      addParksAndGreenSpace();
+      addRealistic3DBuildings();
+      addRouteVisualization();
+    });
+  }
+
+  function createFallbackBuildingTextures() {
+    const windowSize = 64;
+    const glassSize = 64;
+    
+    const windowCanvas = document.createElement('canvas');
+    windowCanvas.width = windowSize;
+    windowCanvas.height = windowSize;
+    const windowCtx = windowCanvas.getContext('2d');
+    windowCtx.fillStyle = '#f5f5f5';
+    windowCtx.fillRect(0, 0, windowSize, windowSize);
+    
+    windowCtx.fillStyle = '#2c3e50';
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 4; x++) {
+        windowCtx.fillRect(x * 16 + 2, y * 16 + 2, 12, 12);
+      }
+    }
+    
+    const glassCanvas = document.createElement('canvas');
+    glassCanvas.width = glassSize;
+    glassCanvas.height = glassSize;
+    const glassCtx = glassCanvas.getContext('2d');
+    
+    const gradient = glassCtx.createLinearGradient(0, 0, glassSize, glassSize);
+    gradient.addColorStop(0, '#74b9ff');
+    gradient.addColorStop(0.5, '#a0d2f7');
+    gradient.addColorStop(1, '#74b9ff');
+    glassCtx.fillStyle = gradient;
+    glassCtx.fillRect(0, 0, glassSize, glassSize);
+    
+    map.addImage('building-windows', { width: windowSize, height: windowSize, data: windowCtx.getImageData(0, 0, windowSize, windowSize).data });
+    map.addImage('building-glass', { width: glassSize, height: glassSize, data: glassCtx.getImageData(0, 0, glassSize, glassSize).data });
+  }
+
+  function addParksAndGreenSpace() {
+    map.addLayer({
+      'id': 'parks',
+      'type': 'fill',
+      'source': 'composite',
+      'source-layer': 'landuse',
+      'filter': [
+        'any',
+        ['==', ['get', 'class'], 'park'],
+        ['==', ['get', 'class'], 'grass'],
+        ['==', ['get', 'class'], 'garden'],
+        ['==', ['get', 'class'], 'wood']
+      ],
+      'paint': {
+        'fill-color': '#75b956',
+        'fill-opacity': 0.7
+      }
+    });
+  }
+
+  function addRealistic3DBuildings() {
+    map.addLayer({
+      'id': '3d-buildings',
+      'source': 'composite',
+      'source-layer': 'building',
+      'filter': ['==', ['get', 'extrude'], 'true'],
+      'type': 'fill-extrusion',
+      'minzoom': 15,
+      'paint': {
+        'fill-extrusion-color': [
+          'match',
+          ['get', 'type'],
+          'commercial', '#E8E1C8', 
+          'office', '#D9D1C0',
+          'retail', '#E2D9C3',
+          'residential', '#E0DED3',
+          'hotel', '#D4CCB9',
+          [
+            'interpolate',
+            ['linear'],
+            ['coalesce', ['get', 'height'], 15],
+            0, '#D9D0BF',
+            50, '#D1CCC0',
+            100, '#C8C4BB',
+            200, '#B8B4AB',
+            300, '#A8A49B'
+          ]
+        ],
+        'fill-extrusion-height': ['coalesce', ['get', 'height'], 15],
+        'fill-extrusion-base': ['coalesce', ['get', 'min_height'], 0],
+        'fill-extrusion-opacity': 1.0,
+        'fill-extrusion-vertical-gradient': true
+      }
+    });
+  }
+
+  function addRouteVisualization() {
+    map.addSource('route', {
+      'type': 'geojson',
+      'data': {
+        'type': 'Feature',
+        'properties': {},
+        'geometry': {
+          'type': 'LineString',
+          'coordinates': routePoints
+        }
+      }
+    });
+    
+    map.addLayer({
+      'id': 'route-line',
+      'type': 'line',
+      'source': 'route',
+      'layout': {
+        'line-join': 'round',
+        'line-cap': 'round'
+      },
+      'paint': {
+        'line-color': '#ff6b6b',
+        'line-width': 8,
+        'line-opacity': 0.8
+      }
+    });
+    
+    map.addLayer({
+      'id': 'route-glow',
+      'type': 'line',
+      'source': 'route',
+      'layout': {
+        'line-join': 'round',
+        'line-cap': 'round'
+      },
+      'paint': {
+        'line-color': '#fab1a0',
+        'line-width': 14,
+        'line-opacity': 0.4,
+        'line-blur': 5
+      }
+    }, 'route-line');
+    
+    new mapboxgl.Marker({ color: '#00b894' }).setLngLat(startCoord).addTo(map);
+    new mapboxgl.Marker({ color: '#d63031' }).setLngLat(endCoord).addTo(map);
+    
+    updateDebug("Map setup complete with route from Graphhopper or CSV");
+  }
+
+  async function processCSVRow(rowIndex) {
+    updateDebug(`Processing locations for agent ${rowIndex + 1}...`);
+    
+    if (!window.csvData || rowIndex >= window.csvData.length) {
+      updateDebug('❌ No CSV data available for this agent number');
+      return null;
+    }
+    
+    const row = window.csvData[rowIndex];
+    updateDebug(`Found ${row.length} valid locations for agent ${rowIndex + 1}`);
+    
+    const rawCoords = [];
+    for (let i = 0; i < row.length; i++) {
+      if (!row[i] || row[i].trim() === '') continue;
+      
+      updateDebug(`Geocoding location ${i+1}/${row.length}: ${row[i]}...`);
+      const coord = await geocodeLocation(row[i]);
+      if (coord) rawCoords.push(coord);
+    }
+    
+    updateDebug(`Successfully geocoded ${rawCoords.length} locations for agent ${rowIndex + 1}`);
+    
+    if (rawCoords.length > 1) {
+      const roadBasedPath = [];
+      
+      for (let i = 0; i < rawCoords.length - 1; i++) {
+        updateDebug(`Creating road path ${i+1}/${rawCoords.length-1} for agent ${rowIndex + 1}...`);
+        const start = rawCoords[i];
+        const end = rawCoords[i+1];
+        
+        const routeSegment = await getRoute(start, end);
+        
+        if (i === 0) {
+          roadBasedPath.push(...routeSegment);
+        } else {
+          roadBasedPath.push(...routeSegment.slice(1));
+        }
+      }
+      
+      updateDebug(`✅ Road-based route created for agent ${rowIndex + 1} with ${roadBasedPath.length} points`);
+      return roadBasedPath;
+    }
+    
+    return null;
+  }
+
+  function startSimulation() {
+    if (!modelLoaded) {
+      updateDebug("Waiting for model to load...");
+      setTimeout(startSimulation, 500);
+      return;
+    }
+    
+    if (routePoints.length === 0) {
+      if (window.csvData && window.csvData.length > 0) {
+        const agentCount = parseInt(document.getElementById('blue-agents').value);
+        const selectedRow = Math.max(0, Math.min(agentCount - 1, window.csvData.length - 1));
+        
+        updateDebug(`No route set. Processing agent ${selectedRow + 1} automatically...`);
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('loader').innerHTML = `
+          <div class="spinner"></div>
+          <div>Processing locations for agent ${selectedRow + 1}...</div>
+        `;
+        
+        processCSVRow(selectedRow).then((processedRoute) => {
+          if (processedRoute && processedRoute.length > 0) {
+            routePoints = processedRoute;
+            
+            if (map && map.getSource('route')) {
+              map.getSource('route').setData({
+                'type': 'Feature',
+                'properties': {},
+                'geometry': {
+                  'type': 'LineString',
+                  'coordinates': routePoints
+                }
+              });
+            }
+            
+            document.getElementById('loader').style.display = 'none';
+            updateDebug(`✅ Route created for agent ${selectedRow + 1}, starting simulation...`);
+            startAnimationLoop();
+          } else {
+            document.getElementById('loader').style.display = 'none';
+            updateDebug("❌ Could not create route from CSV data. Using default route.");
+            getRoute(startCoord, endCoord).then((defaultRoute) => {
+              routePoints = defaultRoute;
+              startAnimationLoop();
+            });
+          }
+        }).catch((error) => {
+          document.getElementById('loader').style.display = 'none';
+          console.error('Error processing CSV row:', error);
+          updateDebug(`❌ Error processing CSV: ${error.message}. Using default route.`);
+          getRoute(startCoord, endCoord).then((defaultRoute) => {
+            routePoints = defaultRoute;
+            startAnimationLoop();
+          });
+        });
+        return;
+      } else {
+        updateDebug("No CSV data loaded. Using default route...");
+        getRoute(startCoord, endCoord).then((defaultRoute) => {
+          routePoints = defaultRoute;
+          startAnimationLoop();
+        });
+        return;
+      }
+    } else {
+      startAnimationLoop();
+    }
+  }
+  
+  function startAnimationLoop() {
+    updateDebug("Starting animation...");
+    
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+    }
+
+    let currentPointIndex = 0;
+    let progress = 0;
+    
+    function animate() {
+      animationId = requestAnimationFrame(animate);
+      
+      if (characterModel && currentPointIndex < routePoints.length - 1) {
+        const currentPoint = routePoints[currentPointIndex];
+        const nextPoint = routePoints[currentPointIndex + 1];
+        
+        const currentWorld = lngLatToWorld(currentPoint[0], currentPoint[1]);
+        const nextWorld = lngLatToWorld(nextPoint[0], nextPoint[1]);
+        
+        const posX = currentWorld.x + (nextWorld.x - currentWorld.x) * progress;
+        const posZ = currentWorld.z + (nextWorld.z - currentWorld.z) * progress;
+        characterModel.position.set(posX, 2, posZ);
+        
+        const angle = Math.atan2(nextWorld.z - currentWorld.z, nextWorld.x - currentWorld.x);
+        characterModel.rotation.y = angle;
+        
+        if (isTopDownView) {
+          camera.position.set(posX, 500, posZ);
+          camera.lookAt(posX, 0, posZ);
+          
+          const currentLng = currentPoint[0] + (nextPoint[0] - currentPoint[0]) * progress;
+          const currentLat = currentPoint[1] + (nextPoint[1] - currentPoint[1]) * progress;
+          
+          map.setCenter([currentLng, currentLat]);
+          map.setPitch(0);
+          map.setBearing(0);
+        } else {
+          const cameraDistance = 2; 
+          const cameraHeight = characterScale * 1.5;
+          const cameraOffsetX = -Math.sin(angle) * cameraDistance;
+          const cameraOffsetZ = -Math.cos(angle) * cameraDistance;
+          
+          camera.position.set(
+            characterModel.position.x + cameraOffsetX,
+            characterModel.position.y + cameraHeight,
+            characterModel.position.z + cameraOffsetZ
+          );
+          
+          const lookAheadDistance = 90;
+          const lookAtYOffset = cameraHeight;
+          const targetLookAtPosition = new THREE.Vector3(
+            characterModel.position.x + Math.sin(angle) * lookAheadDistance,
+            characterModel.position.y + lookAtYOffset,
+            characterModel.position.z + Math.cos(angle) * lookAheadDistance
+          );
+          
+          camera.lookAt(targetLookAtPosition);
+          
+          const bearing = Math.atan2(nextPoint[0] - currentPoint[0], nextPoint[1] - currentPoint[1]) * (180 / Math.PI);
+          map.setCenter([currentLng, currentLat]);
+          map.setBearing(bearing);
+          map.setPitch(60);
+        }
+        
+        if (controls) controls.update();
+        
+        progress += animationSpeed * 2;
+        
+        if (progress >= 1) {
+          currentPointIndex++;
+          progress = 0;
+        }
+        
+        const totalProgress = (currentPointIndex + progress) / (routePoints.length - 1);
+        if (Math.floor(totalProgress * 100) % 5 === 0) {
+          updateDebug(
+            `Progress: ${Math.floor(totalProgress * 100)}%<br>
+            Position: [${currentLng.toFixed(6)}, ${currentLat.toFixed(6)}]<br>
+            3D Position: X:${posX.toFixed(1)}, Y:${characterModel.position.y.toFixed(1)}, Z:${posZ.toFixed(1)}`
+          );
+        }
+      } else if (currentPointIndex >= routePoints.length - 1) {
+        updateDebug("Animation complete!");
+      }
+    }
+    
+    animate();
+  }
+  
+  function resetView() {
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+    }
+    
+    if (map) {
+      map.flyTo({
+        center: startCoord,
+        zoom: 16,
+        pitch: isTopDownView ? 0 : 60,
+        bearing: isTopDownView ? 0 : -30,
+        duration: 1000
+      });
+    }
+    
+    if (characterModel) {
+      const start = lngLatToWorld(...startCoord);
+      characterModel.position.set(start.x, 2, start.z);
+    }
+    
+    if (isTopDownView) {
+      camera.position.set(0, 500, 0);
+      camera.lookAt(0, 0, 0);
+    } else {
+      camera.position.set(0, 150, 200);
+      camera.lookAt(0, 0, 0);
+    }
+    
+    if (controls) controls.update();
+    
+    updateDebug("View reset");
+  }
+
+  function toggleView() {
+    isTopDownView = !isTopDownView;
+    
+    if (isTopDownView) {
+      // Switch to top-down view
+      camera = new THREE.OrthographicCamera(
+        window.innerWidth / -2, window.innerWidth / 2,
+        window.innerHeight / 2, window.innerHeight / -2,
+        1, 10000
+      );
+      
+      camera.position.set(0, 500, 0);
+      camera.lookAt(0, 0, 0);
+      camera.zoom = 0.5;
+      camera.updateProjectionMatrix();
+      
+      if (map) {
+        map.setPitch(0);
+        map.setBearing(0);
+      }
+      
+      updateDebug("Switched to top-down view");
+    } else {
+      // Switch to perspective view
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+      camera.position.set(0, 150, 200);
+      camera.lookAt(0, 0, 0);
+      
+      if (map) {
+        map.setPitch(60);
+        map.setBearing(-30);
+      }
+      
+      updateDebug("Switched to perspective view");
+    }
+    
+    if (controls) {
+      controls.dispose();
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.screenSpacePanning = false;
+      
+      if (isTopDownView) {
+        controls.maxPolarAngle = Math.PI / 2;
+        controls.minDistance = 5;
+        controls.maxDistance = 500;
+      } else {
+        controls.maxPolarAngle = Math.PI;
+        controls.minDistance = 5;
+        controls.maxDistance = 1000;
+      }
+    }
+  }
+
+  window.addEventListener('resize', () => {
+    if (camera && renderer) {
+      if (camera.isOrthographicCamera) {
+        camera.left = window.innerWidth / -2;
+        camera.right = window.innerWidth / 2;
+        camera.top = window.innerHeight / 2;
+        camera.bottom = window.innerHeight / -2;
+      } else {
+        camera.aspect = window.innerWidth / window.innerHeight;
+      }
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+  });
+
+  function setupSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const sidebarClose = document.getElementById('sidebar-close');
+    const modelFile = document.getElementById('model-file');
+    const blueAgents = document.getElementById('blue-agents');
+    const applySettings = document.getElementById('apply-settings');
+
+    sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('active'));
+    sidebarClose.addEventListener('click', () => sidebar.classList.remove('active'));
+    
+    modelFile.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file && file.type === 'text/csv') {
+        updateDebug(`Processing CSV file: ${file.name}...`);
+        parseCSV(file).then(() => {
+          const totalLocations = window.csvData.reduce((sum, row) => sum + row.length, 0);
+          const avgLocations = (totalLocations / window.csvData.length).toFixed(1);
+          updateDebug(`✅ CSV file uploaded: ${window.csvData.length} rows detected with an average of ${avgLocations} locations per row`);
+        }).catch(err => updateDebug(`❌ ${err.message}`));
+      } else {
+        updateDebug('❌ Please upload a valid CSV file');
+      }
+    });
+    
+    applySettings.addEventListener('click', async () => {
+      const agentCount = parseInt(blueAgents.value);
+      
+      if (agentCount >= 1 && agentCount <= 20) {
+        const selectedRow = agentCount - 1;
+        if (window.csvData && window.csvData.length > selectedRow) {
+          const locationCount = window.csvData[selectedRow].length;
+          updateDebug(`Processing selected agent ${agentCount} with ${locationCount} locations...`);
+          
+          document.getElementById('loader').style.display = 'block';
+          document.getElementById('loader').innerHTML = `
+            <div class="spinner"></div>
+            <div>Processing ${locationCount} locations for agent ${agentCount}...</div>
+          `;
+          
+          try {
+            const processedRoute = await processCSVRow(selectedRow);
+            
+            if (processedRoute && processedRoute.length > 0) {
+              routePoints = processedRoute;
+              
+              if (map && map.getSource('route')) {
+                map.getSource('route').setData({
+                  'type': 'Feature',
+                  'properties': {},
+                  'geometry': {
+                    'type': 'LineString',
+                    'coordinates': routePoints
+                  }
+                });
+                
+                map.flyTo({
+                  center: routePoints[0],
+                  zoom: 16,
+                  pitch: isTopDownView ? 0 : 60,
+                  bearing: isTopDownView ? 0 : -30,
+                  duration: 1000
+                });
+              }
+              
+              updateDebug(`✅ Agent ${agentCount} route created with ${routePoints.length} points`);
+            } else {
+              updateDebug(`❌ Could not create route for agent ${agentCount}`);
+            }
+          } catch (error) {
+            console.error('Error processing CSV row:', error);
+            updateDebug(`❌ Error processing agent ${agentCount}: ${error.message}`);
+          } finally {
+            document.getElementById('loader').style.display = 'none';
+          }
+        } else {
+          updateDebug('❌ CSV data not available for selected agent number');
+        }
+      } else {
+        updateDebug('❌ Please select a number between 1 and 20');
+      }
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', setupSidebar);
+  document.getElementById('startBtn').addEventListener('click', () => {
+    setupMap();
+    initScene();
+    setTimeout(() => startSimulation(), 2000);
+  });
+  
+  document.getElementById('resetBtn').addEventListener('click', resetView);
+  document.getElementById('viewToggleBtn').addEventListener('click', toggleView);
+  
+  </script>
+</body>
+</html>

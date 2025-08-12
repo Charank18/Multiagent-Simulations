@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Swarm View NYC</title>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+  <style>
+    body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+    #map { width: 100vw; height: 100vh; }
+    
+    /* Hamburger Button */
+    .hamburger-btn {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      width: 40px;
+      height: 40px;
+      background-color: #4285F4;
+      border-radius: 5px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      cursor: pointer;
+      z-index: 999;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      transition: background-color 0.2s;
+    }
+    .hamburger-btn:hover { background-color: #3367D6; }
+    .hamburger-bar {
+      width: 24px;
+      height: 3px;
+      background-color: white;
+      margin: 2.5px 0;
+      border-radius: 3px;
+      transition: 0.3s;
+    }
+    
+    /* Sidebar */
+    .sidebar {
+      position: fixed;
+      top: 0;
+      left: -300px;
+      width: 300px;
+      height: 100%;
+      background-color: rgba(255, 255, 255, 0.95);
+      z-index: 1000;
+      transition: all 0.3s ease;
+      box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      box-sizing: border-box;
+      overflow-y: auto;
+    }
+    .sidebar.active { left: 0; }
+    .sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #eee;
+    }
+    .sidebar-title {
+      font-size: 22px;
+      font-weight: bold;
+      color: #333;
+    }
+    .sidebar-close {
+      font-size: 24px;
+      cursor: pointer;
+      color: #555;
+    }
+    .sidebar-section {
+      margin-bottom: 25px;
+    }
+    .sidebar-section-title {
+      font-size: 16px;
+      font-weight: bold;
+      margin-bottom: 12px;
+      color: #444;
+    }
+    .sidebar-input-group {
+      margin-bottom: 15px;
+    }
+    .sidebar-input-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: #555;
+    }
+    .sidebar-input-group input[type="number"], 
+    .sidebar-input-group input[type="file"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+    .sidebar-input-group input[type="file"] {
+      padding: 8px;
+      background-color: #f9f9f9;
+    }
+    .sidebar-apply-btn {
+      width: 100%;
+      padding: 12px;
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 16px;
+      margin-top: 15px;
+      transition: background-color 0.2s;
+    }
+    .sidebar-apply-btn:hover { background-color: #3367D6; }
+    
+    /* Debug Display */
+    #debug {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(255,255,255,0.8);
+      color: #333;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: monospace;
+      z-index: 10;
+      max-width: 400px;
+      max-height: 200px;
+      overflow-y: auto;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      font-size: 12px;
+    }
+    
+    /* Loading Indicator */
+    #loader {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255,255,255,0.9);
+      color: #333;
+      padding: 20px;
+      border-radius: 10px;
+      z-index: 2000;
+      text-align: center;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+      display: none;
+    }
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 4px solid rgba(75,192,192,0.3);
+      border-top: 4px solid #4bc0c0;
+      border-radius: 50%;
+      margin: 0 auto 10px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    /* Start Simulation Button */
+    .start-btn {
+      position: fixed;
+      top: 80px;
+      left: 20px;
+      padding: 12px 24px;
+      background-color: #28a745;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+      font-size: 16px;
+      z-index: 999;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+      transition: all 0.3s ease;
+    }
+    .start-btn:hover {
+      background-color: #218838;
+      transform: translateY(-2px);
+    }
+    .start-btn:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
+      transform: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="hamburger-btn" id="sidebar-toggle">
+    <div class="hamburger-bar"></div>
+    <div class="hamburger-bar"></div>
+    <div class="hamburger-bar"></div>
+  </div>
+  
+  <button class="start-btn" id="start-simulation">Start Simulation</button>
+  
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">Settings</div>
+      <div class="sidebar-close" id="sidebar-close">×</div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">File Upload</div>
+      <div class="sidebar-input-group">
+        <label for="model-file">Upload CSV File</label>
+        <input type="file" id="model-file" accept=".csv">
+        <small style="display: block; margin-top: 5px; color: #666;">Accepted format: CSV</small>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Agent Configuration</div>
+      <div class="sidebar-input-group">
+        <label for="blue-agents">Blue Agents Number</label>
+        <input type="number" id="blue-agents" min="1" max="20" value="1">
+      </div>
+    </div>
+    <button class="sidebar-apply-btn" id="apply-settings">Apply Changes</button>
+  </div>
+  
+  <div id="map"></div>
+  
+  <div id="debug">Ready to start</div>
+  
+  <div id="loader">
+    <div class="spinner"></div>
+    <div>Processing...</div>
+  </div>
+
+  <script>
+    mapboxgl.accessToken = 'pk.eyJ1IjoiY2hhcmFuazE4IiwiYSI6ImNtYWgzd3pyOTA3Mzcya3F6OTloZXl5ZXQifQ.USlUIADcQtOXklgQE6nKpg';
+
+    // Global variables for CSV and path management
+    let csvData = [];
+    let routePoints = [];
+    let currentGreenMarker = null;
+    let greenMarkerAnimation = null;
+    let simulationRunning = false;
+    
+    // UI state
+    let sidebarActive = false;
+    let isProcessingRoute = false;
+    let debugEl = null;
+
+    // Helper Functions
+    function updateDebug(message) {
+      if (!debugEl) debugEl = document.getElementById('debug');
+      if (debugEl) {
+        debugEl.innerHTML = message;
+        console.log(message);
+      }
+    }
+    
+    function showLoader(message = 'Processing...') {
+      const loader = document.getElementById('loader');
+      if (loader) {
+        loader.querySelector('div:last-child').textContent = message;
+        loader.style.display = 'block';
+      }
+    }
+    
+    function hideLoader() {
+      const loader = document.getElementById('loader');
+      if (loader) loader.style.display = 'none';
+    }
+
+    // CSV Parsing Function
+    async function parseCSV(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const text = e.target.result;
+          const rows = text.split('\n')
+            .map(row => row.trim())
+            .filter(row => row && !row.startsWith('<DOCUMENT') && !row.endsWith('</DOCUMENT>'))
+            .map(row => {
+              return row.split(',')
+                .map(cell => cell.trim())
+                .filter(cell => cell.length > 0);
+            });
+          
+          window.csvData = rows;
+          csvData = rows;
+          
+          updateDebug(`✅ CSV parsed with ${rows.length} rows of location names`);
+          resolve();
+        };
+        reader.onerror = () => reject(new Error('Failed to read CSV file'));
+        reader.readAsText(file);
+      });
+    }
+
+    // Geocoding function with NYC context and scoring
+    async function geocodeLocation(location) {
+      if (!location || location.trim() === '' || location === ',' || location.includes(',,')) {
+        updateDebug(`⚠️ Skipping invalid location: "${location}"`);
+        return null;
+      }
+      
+      let searchLocation = location;
+      
+      // Add contextual information based on location patterns
+      if (location.toLowerCase().includes('apollo') && location.toLowerCase().includes('theater')) {
+        searchLocation = location + " 125th Street Harlem New York";
+      } else if (location.toLowerCase().includes('jfk') || 
+                 location.toLowerCase().includes('kennedy airport') ||
+                 location.toLowerCase().includes('john f kennedy')) {
+        searchLocation = location + " Queens New York Airport";
+      } else if (location.toLowerCase().includes('la guardia') || 
+                 location.toLowerCase().includes('laguardia')) {
+        searchLocation = location + " Queens New York Airport";
+      } else if (!location.toLowerCase().includes('new york')) {
+        searchLocation = location + " New York";
+      }
+      
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchLocation)}.json?access_token=${mapboxgl.accessToken}&limit=10&bbox=-74.3,40.5,-73.6,41.0&proximity=-74.0060,40.7128&types=address,poi,place`;
+      
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.features && data.features.length > 0) {
+          // Filter out water-related results
+          const filteredFeatures = data.features.filter(feature => {
+            const isWaterRelated = 
+              (feature.place_name && (
+                feature.place_name.toLowerCase().includes("river") ||
+                feature.place_name.toLowerCase().includes("bay") ||
+                feature.place_name.toLowerCase().includes("harbor") ||
+                feature.place_name.toLowerCase().includes("pond") ||
+                feature.place_name.toLowerCase().includes("lake")
+              )) ||
+              (feature.properties && feature.properties.category === "water") ||
+              (feature.place_type && feature.place_type.includes("water"));
+            
+            return !isWaterRelated;
+          });
+          
+          // Score and sort results
+          const scoredFeatures = filteredFeatures.map(feature => {
+            let score = 0;
+            
+            if (feature.place_type && feature.place_type.includes("poi")) score += 20;
+            if (feature.text && location.toLowerCase().includes(feature.text.toLowerCase())) score += 30;
+            else if (feature.text && feature.text.toLowerCase().includes(location.toLowerCase())) score += 25;
+            
+            const placeName = feature.place_name?.toLowerCase() || '';
+            if (placeName.includes("new york")) score += 50;
+            
+            if (feature.text && feature.text.toLowerCase() === location.toLowerCase()) score += 50;
+            
+            return { feature, score };
+          }).sort((a, b) => b.score - a.score);
+          
+          if (scoredFeatures.length > 0) {
+            const bestMatch = scoredFeatures[0].feature;
+            const [lng, lat] = bestMatch.center;
+            updateDebug(`✅ Geocoded ${location} to [${lng}, ${lat}]`);
+            return [lng, lat];
+          } else {
+            const [lng, lat] = data.features[0].center;
+            updateDebug(`⚠️ Using best available location for ${location}`);
+            return [lng, lat];
+          }
+        } else {
+          throw new Error(`No coordinates found for ${location}`);
+        }
+      } catch (error) {
+        updateDebug(`❌ Geocoding error for ${location}: ${error.message}`);
+        return null;    
+      }
+    }
+
+    // Route fetching with distance-based profile selection
+    async function getRoute(start, end) {
+      const calculateDistance = (lng1, lat1, lng2, lat2) => {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+      };
+      
+      const distanceKm = calculateDistance(start[0], start[1], end[0], end[1]);
+      const routingProfile = distanceKm > 10 ? 'driving' : 'walking';
+      
+      const url = `https://api.mapbox.com/directions/v5/mapbox/${routingProfile}/${start[0]},${start[1]};${end[0]},${end[1]}?steps=true&geometries=geojson&alternatives=true&continue_straight=true&exclude=ferry&waypoints_per_route=true&access_token=${mapboxgl.accessToken}`;
+      
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.routes && data.routes[0] && data.routes[0].geometry.coordinates) {
+          return data.routes[0].geometry.coordinates;
+        } else {
+          throw new Error('No route found in response');
+        }
+      } catch (error) {
+        console.error('Error fetching route:', error);
+        updateDebug('❌ Failed to fetch road-based route. Using direct path...');
+        
+        // Fallback: direct path with intermediate points
+        const directPath = [];
+        directPath.push(start);
+        const latDiff = (end[1] - start[1]) / 2;
+        const lngDiff = (end[0] - start[0]) / 2;
+        directPath.push([start[0] + lngDiff, start[1]]);
+        directPath.push([start[0] + lngDiff, start[1] + latDiff]);
+        directPath.push(end);
+        
+        return directPath;
+      }
+    }
+
+    // Process CSV row to create road-based route
+    async function processCSVRow(rowIndex) {
+      updateDebug(`Processing locations for agent ${rowIndex + 1}...`);
+      
+      if (!csvData || rowIndex >= csvData.length) {
+        updateDebug('❌ No CSV data available for this agent number');
+        return null;
+      }
+      
+      const row = csvData[rowIndex];
+      updateDebug(`Found ${row.length} valid locations for agent ${rowIndex + 1}`);
+      
+      const rawCoords = [];
+      for (let i = 0; i < row.length; i++) {
+        if (!row[i] || row[i].trim() === '') continue;
+        
+        updateDebug(`Geocoding location ${i+1}/${row.length}: ${row[i]}...`);
+        const coord = await geocodeLocation(row[i]);
+        if (coord) rawCoords.push(coord);
+      }
+      
+      updateDebug(`Successfully geocoded ${rawCoords.length} locations for agent ${rowIndex + 1}`);
+      
+      if (rawCoords.length > 1) {
+        const roadBasedPath = [];
+        
+        for (let i = 0; i < rawCoords.length - 1; i++) {
+          updateDebug(`Creating road path ${i+1}/${rawCoords.length-1} for agent ${rowIndex + 1}...`);
+          const start = rawCoords[i];
+          const end = rawCoords[i+1];
+          
+          const routeSegment = await getRoute(start, end);
+          
+          if (i === 0) {
+            roadBasedPath.push(...routeSegment);
+          } else {
+            roadBasedPath.push(...routeSegment.slice(1));
+          }
+        }
+        
+        updateDebug(`✅ Road-based route created for agent ${rowIndex + 1} with ${roadBasedPath.length} points`);
+        return roadBasedPath;
+      }
+      
+      return null;
+    }
+
+    const map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12', // Changed to satellite view
+      center: [-74.000, 40.730], // Adjusted center to focus on Manhattan
+      zoom: 12, // Adjusted zoom to match the image
+      pitch: 60, // Matches the image's 3D tilt
+      bearing: 45, // Adjusted bearing to match the image's angle
+      antialias: true,
+      interactive: false
+    });
+
+    map.on('load', () => {
+      // Initialize default green marker route
+      initializeDefaultRoute();
+
+      // Initialize random walkers (preserving existing functionality)
+      createRandomMarkers('blue', 5);
+      createRandomMarkers('red', 5);
+    });
+
+    // Generate a random point around a center
+    function randomPointAround(center, radius = 0.05) {
+      const [lng, lat] = center;
+      const randomLng = lng + (Math.random() - 0.5) * radius;
+      const randomLat = lat + (Math.random() - 0.5) * radius;
+      return [randomLng, randomLat];
+    }
+
+    // Check if a point is on land (not water)
+    function isOnLand(lngLat) {
+      const point = map.project(lngLat); // Convert to screen coordinates
+      const features = map.queryRenderedFeatures(point, {
+        layers: ['water'] // Mapbox built-in water layer
+      });
+      return features.length === 0; // True if not in water
+    }
+
+    // Create random walkers only on land
+    function createRandomMarkers(color, count) {
+      const markers = [];
+
+      function placeValidMarker(i) {
+        if (i >= count) return;
+
+        const tryPlace = () => {
+          const candidate = randomPointAround([-74.000, 40.730]);
+          if (isOnLand(candidate)) {
+            const marker = new mapboxgl.Marker({ color })
+              .setLngLat(candidate)
+              .addTo(map);
+            markers.push(marker);
+            placeValidMarker(i + 1);
+          } else {
+            // Retry if the point is on water
+            setTimeout(tryPlace, 50);
+          }
+        };
+
+        tryPlace();
+      }
+
+      placeValidMarker(0);
+
+      // Animate them
+      function moveMarkers() {
+        markers.forEach(marker => {
+          const current = marker.getLngLat();
+          let next = randomPointAround([current.lng, current.lat], 0.005);
+
+          // Retry logic to ensure the next location is on land
+          const tryMove = () => {
+            if (isOnLand(next)) {
+              marker.setLngLat(next);
+            } else {
+              next = randomPointAround([current.lng, current.lat], 0.005);
+              setTimeout(tryMove, 50);
+            }
+          };
+
+          tryMove();
+        });
+
+        setTimeout(moveMarkers, 3000);
+      }
+
+      moveMarkers();
+    }
+
+    // Modular green marker initialization (prepare default route but don't start)
+    function initializeDefaultRoute() {
+      const start = [-73.9855, 40.7580]; // Starting point in Manhattan
+      const end = [-74.0090, 40.7069];   // Ending point near Lower Manhattan
+
+      fetch(`https://api.mapbox.com/directions/v5/mapbox/driving/${start.join(',')};${end.join(',')}?geometries=geojson&access_token=${mapboxgl.accessToken}`)
+        .then(res => res.json())
+        .then(data => {
+          const route = data.routes[0].geometry.coordinates;
+          routePoints = route;
+          updateGreenMarkerRoute(route);
+        })
+        .catch(error => {
+          console.error('Error loading default route:', error);
+          updateDebug('❌ Failed to load default route');
+        });
+    }
+
+    // Update green marker route and visualization (prepare but don't start)
+    function updateGreenMarkerRoute(newRoute) {
+      routePoints = newRoute;
+      
+      // Stop existing animation
+      if (greenMarkerAnimation) {
+        clearTimeout(greenMarkerAnimation);
+        greenMarkerAnimation = null;
+      }
+      
+      // Remove existing marker
+      if (currentGreenMarker) {
+        currentGreenMarker.remove();
+        currentGreenMarker = null;
+      }
+
+      // Update route line on map
+      if (map.getSource('route-line')) {
+        map.getSource('route-line').setData({
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: newRoute
+          }
+        });
+      } else {
+        map.addSource('route-line', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: {
+              type: 'LineString',
+              coordinates: newRoute
+            }
+          }
+        });
+
+        map.addLayer({
+          id: 'route-line-layer',
+          type: 'line',
+          source: 'route-line',
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: { 'line-color': '#00ff00', 'line-width': 4 }
+        });
+      }
+
+      // Create marker at starting position but don't start animation
+      currentGreenMarker = new mapboxgl.Marker({ color: 'green' })
+        .setLngLat(newRoute[0])
+        .addTo(map);
+        
+      // Enable start button
+      const startBtn = document.getElementById('start-simulation');
+      if (startBtn) {
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start Simulation';
+      }
+      
+      updateDebug(`🎯 Route loaded with ${newRoute.length} points. Click "Start Simulation" to begin.`);
+    }
+
+    // Enhanced green marker animation with camera following at fixed zoom and bearing
+    function animateGreenMarker(route) {
+      if (!route || route.length === 0) return;
+      
+      // Check if simulation is running
+      if (!simulationRunning) {
+        updateDebug('⏸️ Simulation stopped');
+        return;
+      }
+      
+      // Ensure marker exists
+      if (!currentGreenMarker) {
+        currentGreenMarker = new mapboxgl.Marker({ color: 'green' })
+          .setLngLat(route[0])
+          .addTo(map);
+      }
+
+      let i = 0;
+      const speed = 2000; // Maintain original speed
+
+      function moveGreenMarker() {
+        if (i >= route.length || !simulationRunning) {
+          if (i >= route.length) {
+            updateDebug('✅ Green marker animation completed');
+            // Reset button
+            const startBtn = document.getElementById('start-simulation');
+            if (startBtn) {
+              startBtn.disabled = false;
+              startBtn.textContent = 'Start Simulation';
+            }
+            simulationRunning = false;
+          }
+          return;
+        }
+        
+        const currentPosition = route[i];
+        currentGreenMarker.setLngLat(currentPosition);
+        
+        // Make camera follow the green marker but keep fixed zoom and bearing
+        map.easeTo({
+          center: currentPosition,
+          // Remove bearing calculation - keep original bearing fixed
+          zoom: 12, // FIXED: Keep the same wide zoom level as the initial view
+          pitch: 60, // Maintain 3D perspective
+          duration: speed * 0.9, // Smooth transition timing
+          essential: true // This animation is essential for functionality
+        });
+        
+        i++;
+        greenMarkerAnimation = setTimeout(moveGreenMarker, speed);
+      }
+
+      // Start following from the beginning with initial camera setup - NO ZOOM OR BEARING CHANGE
+      map.easeTo({
+        center: route[0],
+        duration: 1000
+      });
+
+      // Start animation after initial setup completes
+      setTimeout(() => {
+        moveGreenMarker();
+        updateDebug(`🎯 Green marker animation started with camera following at fixed zoom and bearing`);
+      }, 1000);
+    }
+
+    // Start simulation function
+    function startSimulation() {
+      if (routePoints.length === 0) {
+        updateDebug('❌ No route available. Please upload CSV and select an agent first.');
+        return;
+      }
+      
+      if (simulationRunning) {
+        // Stop simulation
+        simulationRunning = false;
+        if (greenMarkerAnimation) {
+          clearTimeout(greenMarkerAnimation);
+          greenMarkerAnimation = null;
+        }
+        const startBtn = document.getElementById('start-simulation');
+        if (startBtn) {
+          startBtn.disabled = false;
+          startBtn.textContent = 'Start Simulation';
+        }
+        updateDebug('⏹️ Simulation stopped by user');
+        return;
+      }
+      
+      // Start simulation
+      simulationRunning = true;
+      const startBtn = document.getElementById('start-simulation');
+      if (startBtn) {
+        startBtn.textContent = 'Stop Simulation';
+      }
+      
+      updateDebug('▶️ Starting simulation...');
+      animateGreenMarker(routePoints);
+    }
+
+    // Calculate bearing between two points
+    function getBearing(start, end) {
+      const startLat = start[1] * Math.PI / 180;
+      const startLng = start[0] * Math.PI / 180;
+      const endLat = end[1] * Math.PI / 180;
+      const endLng = end[0] * Math.PI / 180;
+      
+      const deltaLng = endLng - startLng;
+      
+      const y = Math.sin(deltaLng) * Math.cos(endLat);
+      const x = Math.cos(startLat) * Math.sin(endLat) - Math.sin(startLat) * Math.cos(endLat) * Math.cos(deltaLng);
+      
+      const bearing = Math.atan2(y, x) * 180 / Math.PI;
+      return (bearing + 360) % 360;
+    }
+
+    // Reset to default route
+    function resetToDefaultRoute() {
+      updateDebug('🔄 Resetting to default route...');
+      initializeDefaultRoute();
+    }
+
+    // Sidebar functionality and event handlers
+    function toggleSidebar() {
+      const sidebar = document.getElementById('sidebar');
+      sidebar.classList.toggle('active');
+      sidebarActive = !sidebarActive;
+    }
+
+    // Initialize sidebar event handlers
+    document.addEventListener('DOMContentLoaded', function() {
+      const sidebar = document.getElementById('sidebar');
+      const sidebarToggle = document.getElementById('sidebar-toggle');
+      const sidebarClose = document.getElementById('sidebar-close');
+      const modelFile = document.getElementById('model-file');
+      const blueAgents = document.getElementById('blue-agents');
+      const applySettings = document.getElementById('apply-settings');
+
+      // Sidebar toggle handlers
+      sidebarToggle.addEventListener('click', toggleSidebar);
+      sidebarClose.addEventListener('click', () => {
+        sidebar.classList.remove('active');
+        sidebarActive = false;
+      });
+
+      // File upload handler
+      modelFile.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file && file.type === 'text/csv') {
+          updateDebug(`Processing CSV file: ${file.name}...`);
+          showLoader('Parsing CSV file...');
+          parseCSV(file).then(() => {
+            const totalLocations = csvData.reduce((sum, row) => sum + row.length, 0);
+            const avgLocations = (totalLocations / csvData.length).toFixed(1);
+            updateDebug(`✅ CSV file uploaded: ${csvData.length} rows with avg ${avgLocations} locations per row`);
+            hideLoader();
+          }).catch(err => {
+            updateDebug(`❌ ${err.message}`);
+            hideLoader();
+          });
+        } else {
+          updateDebug('❌ Please upload a valid CSV file');
+        }
+      });
+
+      // Apply settings handler
+      applySettings.addEventListener('click', async () => {
+        if (isProcessingRoute) {
+          updateDebug('⚠️ Already processing a route, please wait...');
+          return;
+        }
+
+        const agentCount = parseInt(blueAgents.value);
+        
+        if (agentCount >= 1 && agentCount <= 20) {
+          const selectedRow = agentCount - 1; // 0-based index
+          if (csvData && csvData.length > selectedRow) {
+            const locationCount = csvData[selectedRow].length;
+            updateDebug(`Processing agent ${agentCount} with ${locationCount} locations...`);
+            
+            isProcessingRoute = true;
+            showLoader(`Processing ${locationCount} locations for agent ${agentCount}...`);
+            
+            try {
+              const processedRoute = await processCSVRow(selectedRow);
+              
+              if (processedRoute && processedRoute.length > 0) {
+                updateGreenMarkerRoute(processedRoute);
+                updateDebug(`✅ Agent ${agentCount} route created with ${processedRoute.length} points`);
+                
+                // Position camera to start of route but keep same zoom level
+                if (map && processedRoute[0]) {
+                  map.easeTo({
+                    center: processedRoute[0],
+                    zoom: 12, // Keep the same wide zoom level
+                    duration: 1000
+                  });
+                }
+              } else {
+                updateDebug(`❌ Could not create route for agent ${agentCount}`);
+                resetToDefaultRoute();
+              }
+            } catch (error) {
+              console.error('Error processing CSV row:', error);
+              updateDebug(`❌ Error processing agent ${agentCount}: ${error.message}`);
+              resetToDefaultRoute();
+            } finally {
+              isProcessingRoute = false;
+              hideLoader();
+              // Close sidebar after processing
+              sidebar.classList.remove('active');
+              sidebarActive = false;
+            }
+          } else {
+            updateDebug('❌ CSV data not available for selected agent number');
+          }
+        } else {
+          updateDebug('❌ Please select a number between 1 and 20');
+        }
+      });
+      
+      // Initialize debug display
+      updateDebug('Ready to start - Upload CSV and select agent');
+      
+      // Setup start simulation button
+      const startSimulationBtn = document.getElementById('start-simulation');
+      if (startSimulationBtn) {
+        startSimulationBtn.addEventListener('click', startSimulation);
+        startSimulationBtn.disabled = true; // Disabled until route is loaded
+      }
+    });
+  </script>
+</body>
+</html>

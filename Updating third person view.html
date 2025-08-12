@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NYC 3D Character Simulation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="data:,">
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #map { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2; }
+    #simulationCanvas { width: 100%; height: 100%; }
+    .button { position: absolute; padding: 10px 20px; background: #ff6b6b; color: #fff; border: none; border-radius: 5px; cursor: pointer; z-index: 10; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: all 0.3s ease; }
+    .button:hover { background: #ff8787; transform: translateY(-2px); }
+    #startBtn { top: 20px; left: 20px; }
+    #resetBtn { top: 20px; left: 140px; }
+    #debug { position: absolute; bottom: 10px; right: 10px; background: rgba(255,255,255,0.8); color: #333; padding: 10px; border-radius: 5px; font-family: monospace; z-index: 10; max-width: 400px; max-height: 200px; overflow-y: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255,255,255,0.9); color: #333; padding: 20px; border-radius: 10px; z-index: 20; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+    .spinner { width: 40px; height: 40px; border: 4px solid rgba(75,192,192,0.3); border-top: 4px solid #4bc0c0; border-radius: 50%; margin: 0 auto 10px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .sidebar { position: fixed; top: 0; left: -300px; width: 300px; height: 100%; background-color: rgba(255, 255, 255, 0.95); z-index: 1000; transition: all 0.3s ease; box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1); padding: 20px; box-sizing: border-box; overflow-y: auto; }
+    .sidebar.active { left: 0; }
+    .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+    .sidebar-title { font-size: 22px; font-weight: bold; color: #333; }
+    .sidebar-close { font-size: 24px; cursor: pointer; color: #555; }
+    .sidebar-section { margin-bottom: 25px; }
+    .sidebar-section-title { font-size: 16px; font-weight: bold; margin-bottom: 12px; color: #444; }
+    .sidebar-input-group { margin-bottom: 15px; }
+    .sidebar-input-group label { display: block; margin-bottom: 8px; font-weight: 500; color: #555; }
+    .sidebar-input-group input[type="number"], .sidebar-input-group input[type="file"] { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 5px; font-size: 14px; }
+    .sidebar-input-group input[type="file"] { padding: 8px; background-color: #f9f9f9; }
+    .sidebar-apply-btn { width: 100%; padding: 12px; background-color: #4285F4; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px; margin-top: 15px; transition: background-color 0.2s; }
+    .sidebar-apply-btn:hover { background-color: #3367D6; }
+    .hamburger-btn { position: fixed; top: 20px; left: 20px; width: 40px; height: 40px; background-color: #4285F4; border-radius: 5px; display: flex; flex-direction: column; justify-content: center; align-items: center; cursor: pointer; z-index: 999; box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2); transition: background-color 0.2s; }
+    .hamburger-btn:hover { background-color: #3367D6; }
+    .hamburger-bar { width: 24px; height: 3px; background-color: white; margin: 2.5px 0; border-radius: 3px; transition: 0.3s; }
+  </style>
+  <!-- Mapbox GL JS -->
+  <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet"/>
+</head>
+<body>
+  <div class="hamburger-btn" id="sidebar-toggle">
+    <div class="hamburger-bar"></div><div class="hamburger-bar"></div><div class="hamburger-bar"></div>
+  </div>
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-header"><div class="sidebar-title">Settings</div><div class="sidebar-close" id="sidebar-close">×</div></div>
+    <div class="sidebar-section"><div class="sidebar-section-title">File Upload</div><div class="sidebar-input-group"><label for="model-file">Upload CSV File</label><input type="file" id="model-file" accept=".csv"><small style="display: block; margin-top: 5px; color: #666;">Accepted format: CSV</small></div></div>
+    <div class="sidebar-section"><div class="sidebar-section-title">Agent Configuration</div><div class="sidebar-input-group"><label for="blue-agents">Blue Agents Number</label><input type="number" id="blue-agents" min="1" max="20" value="1"></div></div>
+    <button class="sidebar-apply-btn" id="apply-settings">Apply Changes</button>
+  </div>
+  <div id="map"></div>
+  <div id="canvas-container">
+    <div id="simulationCanvas"></div>
+  </div>
+  <button id="startBtn" class="button">Start Simulation</button>
+  <button id="resetBtn" class="button">Reset View</button>
+  <div id="debug">Ready to start</div>
+  <div id="loader">
+    <div class="spinner"></div>
+    <div>Loading 3D assets...</div>
+  </div>
+  <!-- Three.js and Addons as ES Modules -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.147.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.147.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <script type="module">
+  import * as THREE from 'three';
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+  import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+  
+  // Make THREE available globally
+  window.THREE = THREE;
+  // Route coordinates
+  const startCoord = [-74.0090, 40.7069]; // Lower Manhattan
+  const endCoord = [-73.9855, 40.7580];   // Times Square
+
+  // Global variables
+  let map, scene, camera, renderer, mixer, clock, controls;
+  let characterModel = null;
+  let animationAction = null;
+  let animationSpeed = 0.00115; // Slower speed for better visibility
+  let characterScale = 5; // Increased scale to make character visible
+  let modelLoaded = false;
+  let animationId = null;  let debugEl = document.getElementById('debug');
+  let routePoints = []; // Array to store route points
+  let csvPath = []; // Array to store processed CSV route data
+  let csvData = []; // Array to store raw CSV location names
+
+  // Constants
+  const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiY2hhcmFuazE4IiwiYSI6ImNtYWgzd3pyOTA3Mzcya3F6OTloZXl5ZXQifQ.USlUIADcQtOXklgQE6nKpg';
+  const GRAPHHOPPER_API_KEY = 'bbc248b1-d3e1-4339-bc70-daf704c6cb82'; // Replace with your API key
+  const GRAPHHOPPER_API_URL = 'https://graphhopper.com/api/1/route';
+  const CHARACTER_GROUND_Y = 2; // Constant for character ground height
+  
+  // Utility function to calculate distance between two coordinates in kilometers
+  function calculateDistance(lng1, lat1, lng2, lat2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lng2 - lng1) * Math.PI / 180;
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2); 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    return R * c; // Distance in km
+  }
+  // Debug helper
+  function updateDebug(message) {
+    debugEl.innerHTML = message;
+    console.log(message);
+  }
+  
+  // Convert geographic coordinates to 3D world coordinates
+  function lngLatToWorld(lng, lat) {
+    const scale = 100000;
+    return new THREE.Vector3((lng + 74.0060) * scale, 0, (lat - 40.7128) * scale);
+  }
+  
+  // Geocode location name to coordinates using Mapbox with no special location handling
+  async function geocodeLocation(location) {
+    // Skip empty or invalid locations
+    if (!location || location.trim() === '' || location === ',' || location.includes(',,')) {
+      updateDebug(`⚠️ Skipping invalid location: "${location}"`);
+      return null;
+    }
+    
+    // Use consistent search parameters for all locations - no location-specific parameters
+    // This provides a consistent bounding box covering all NYC boroughs
+    const searchParams = {
+      bbox: "-74.3,40.5,-73.6,41.0",   // Wider bbox that includes all NYC boroughs
+      proximity: "-74.0060,40.7128",   // Manhattan center as a general proximity
+      types: "address,poi,place",      // Search all relevant location types
+      limit: 10                        // Request more results for better ranking options
+    };
+    
+    // Improve the search query with contextual information based on name patterns
+    let searchLocation = location;
+    
+    // Identify common location types and add appropriate context
+    if (location.toLowerCase().includes('apollo') && location.toLowerCase().includes('theater')) {
+      // Add neighborhood context for famous theaters
+      searchLocation = location + " 125th Street Harlem New York";
+      updateDebug(`🔍 Adding neighborhood context for theater: ${searchLocation}`);
+    }
+    else if (location.toLowerCase().includes('jfk') || 
+             location.toLowerCase().includes('kennedy airport') ||
+             location.toLowerCase().includes('john f kennedy')) {
+      // Add borough context for airports
+      searchLocation = location + " Queens New York Airport";
+      updateDebug(`🔍 Adding borough context for airport: ${searchLocation}`);
+    }
+    else if (location.toLowerCase().includes('la guardia') || 
+             location.toLowerCase().includes('laguardia')) {
+      searchLocation = location + " Queens New York Airport";
+      updateDebug(`🔍 Adding borough context for airport: ${searchLocation}`);
+    }
+    // For all other locations, just add "New York" if not already included
+    else if (!location.toLowerCase().includes('new york')) {
+      searchLocation = location + " New York";
+      updateDebug(`🔍 Adding "New York" to search query: ${searchLocation}`);
+    }
+    
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(searchLocation)}.json?access_token=${MAPBOX_ACCESS_TOKEN}&limit=10&bbox=${searchParams.bbox}&proximity=${searchParams.proximity}&types=${searchParams.types}`;
+    
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.features && data.features.length > 0) {
+        // Filter out water-related results
+        const filteredFeatures = data.features.filter(feature => {
+          // Check if feature is on land by examining its properties
+          const isWaterRelated = 
+            // Check place name
+            (feature.place_name && (
+              feature.place_name.toLowerCase().includes("river") ||
+              feature.place_name.toLowerCase().includes("bay") ||
+              feature.place_name.toLowerCase().includes("harbor") ||
+              feature.place_name.toLowerCase().includes("pond") ||
+              feature.place_name.toLowerCase().includes("lake")
+            )) ||
+            // Check feature type
+            (feature.properties && feature.properties.category === "water") ||
+            // Check place type
+            (feature.place_type && feature.place_type.includes("water"));
+          
+          return !isWaterRelated;
+        });
+        
+        // Score and sort results using a generic approach without hardcoded coordinates
+        const scoredFeatures = filteredFeatures.map(feature => {
+          let score = 0;
+          
+          // Higher scores for POIs (points of interest)
+          if (feature.place_type && feature.place_type.includes("poi")) {
+            score += 20;
+          }
+          
+          // Higher scores for exact name matches in result text
+          if (feature.text && location.toLowerCase().includes(feature.text.toLowerCase())) {
+            score += 30;
+          } else if (feature.text && feature.text.toLowerCase().includes(location.toLowerCase())) {
+            score += 25; // Slightly less if the location is contained in the result
+          }
+          
+          // For address types when searching for addresses
+          if (feature.place_type && feature.place_type.includes("address") && 
+              (location.toLowerCase().includes("street") || location.toLowerCase().includes("avenue"))) {
+            score += 15;
+          }
+          
+          // Higher scores for landmarks when searching for landmarks
+          if (feature.properties && 
+              feature.properties.landmark && 
+              (location.toLowerCase().includes("theater") || 
+               location.toLowerCase().includes("museum") || 
+               location.toLowerCase().includes("stadium"))) {
+            score += 25;
+          }
+          
+          // Check if place_name contains context that matches what we're looking for
+          const placeName = feature.place_name?.toLowerCase() || '';
+          
+          // Higher scores for results in NYC
+          if (placeName.includes("new york")) {
+            score += 50; // Strong bonus for being in New York
+          }
+          
+          // For specific landmark types, check for relevant neighborhood match
+          if (location.toLowerCase().includes('apollo') && location.toLowerCase().includes('theater')) {
+            if (placeName.includes("harlem") || placeName.includes("125th")) {
+              score += 40; // Bonus for Apollo Theater being in Harlem or on 125th
+            }
+          }
+          
+          // Airport scoring without hardcoded coordinates
+          if ((location.toLowerCase().includes('jfk') || 
+               location.toLowerCase().includes('kennedy') || 
+               location.toLowerCase().includes('john f kennedy')) &&
+              (placeName.includes("airport") && placeName.includes("queens"))) {
+            score += 40; // Bonus for JFK being in Queens and an airport
+          }
+          
+          if ((location.toLowerCase().includes('la guardia') || 
+               location.toLowerCase().includes('laguardia')) &&
+              (placeName.includes("airport") && placeName.includes("queens"))) {
+            score += 40; // Bonus for LaGuardia being in Queens and an airport
+          }
+          
+          // Boost exact matches even more
+          if (feature.text && feature.text.toLowerCase() === location.toLowerCase()) {
+            score += 50; // Very strong bonus for exact match
+          }
+                    
+          return { feature, score };
+        }).sort((a, b) => b.score - a.score); // Sort by score descending
+        
+        // Use the highest scoring result
+        if (scoredFeatures.length > 0) {
+          const bestMatch = scoredFeatures[0].feature;
+          const [lng, lat] = bestMatch.center;
+          updateDebug(`✅ Geocoded ${location} to [${lng}, ${lat}]`);
+          return [lng, lat];
+        } else {
+          // If no features remain after filtering, use the first original feature
+          const [lng, lat] = data.features[0].center;
+          updateDebug(`⚠️ Using best available location for ${location}, but it might be near water`);
+          return [lng, lat];
+        }
+      } else {
+        throw new Error(`No coordinates found for ${location}`);
+      }
+    } catch (error) {
+      updateDebug(`❌ Geocoding error for ${location}: ${error.message}`);
+      return null;    
+    }
+  }
+  
+  // Function to get route from Mapbox Directions API (ensures road-based routing)
+  async function getRoute(start, end) {
+    // Calculate the distance between start and end points
+    const distanceKm = calculateDistance(start[0], start[1], end[0], end[1]);
+    
+    // For longer routes (like airport routes), use driving profile instead of walking
+    // This gives more realistic routes for longer distances
+    let routingProfile;
+    
+    if (distanceKm > 10) {
+      routingProfile = 'driving'; // For long distances like to/from airports
+      updateDebug(`📍 Using driving profile for long distance route (${distanceKm.toFixed(1)}km)`);
+    } else {
+      routingProfile = 'walking'; // For shorter city distances
+      updateDebug(`📍 Using walking profile for short distance route (${distanceKm.toFixed(1)}km)`);
+    }
+    
+    // Use Mapbox Directions API for road-based routing with strict parameters
+    // - exclude=ferry: Avoid water routes
+    // - profile: Determined based on distance
+    // - alternatives=true: Try to find best road route
+    // - continue_straight=true: Avoid unnecessary turns
+    // - waypoints_per_route=true: Ensures adherence to waypoints
+    const url = `https://api.mapbox.com/directions/v5/mapbox/${routingProfile}/${start[0]},${start[1]};${end[0]},${end[1]}?steps=true&geometries=geojson&alternatives=true&continue_straight=true&exclude=ferry&waypoints_per_route=true&access_token=${MAPBOX_ACCESS_TOKEN}`;
+    
+    try {
+      updateDebug("Fetching strict road-based route from Mapbox...");
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.routes && data.routes[0] && data.routes[0].geometry.coordinates) {
+        // Check if route crosses water by looking at the route steps
+        let routeCrossesWater = false;
+        
+        if (data.routes[0].legs && data.routes[0].legs[0] && data.routes[0].legs[0].steps) {
+          const steps = data.routes[0].legs[0].steps;
+          for (const step of steps) {
+            // Look for steps with water-related maneuvers or names
+            if (step.maneuver && step.maneuver.instruction) {
+              const instruction = step.maneuver.instruction.toLowerCase();
+              if (instruction.includes('ferry') || 
+                  instruction.includes('boat') || 
+                  instruction.includes('water') ||
+                  (step.name && (step.name.toLowerCase().includes('ferry') || step.name.toLowerCase().includes('river')))) {
+                routeCrossesWater = true;
+                break;
+              }
+            }
+          }
+        }
+        
+        // If this route crosses water and we have alternatives, try the next route
+        if (routeCrossesWater && data.routes.length > 1) {
+          updateDebug("⚠️ Primary route crosses water, trying alternative route...");
+          routePoints = data.routes[1].geometry.coordinates;
+        } else {
+          routePoints = data.routes[0].geometry.coordinates;
+        }
+        
+        updateDebug(`✅ Strict road-based route fetched with ${routePoints.length} points`);
+        return routePoints;
+      } else {
+        throw new Error('No route found in response');
+      }
+    } catch (error) {
+      console.error('Error fetching route:', error);
+      updateDebug('❌ Failed to fetch road-based route. Trying alternative approach...');
+      
+      // Try with different routing profile as fallback
+      try {
+        const fallbackUrl = `https://api.mapbox.com/directions/v5/mapbox/driving-walking/${start[0]},${start[1]};${end[0]},${end[1]}?steps=false&geometries=geojson&exclude=ferry&access_token=${MAPBOX_ACCESS_TOKEN}`;
+        const fallbackResponse = await fetch(fallbackUrl);
+        const fallbackData = await fallbackResponse.json();
+        
+        if (fallbackData.routes && fallbackData.routes[0] && fallbackData.routes[0].geometry.coordinates) {
+          updateDebug("✅ Found alternative road-based route");
+          return fallbackData.routes[0].geometry.coordinates;
+        }
+      } catch (fallbackError) {
+        console.error('Fallback routing failed:', fallbackError);
+      }
+      
+      // Last resort: direct path but with max 3 intermediate points to avoid water
+      updateDebug('⚠️ Using direct path with intermediate points');
+      const directPath = [];
+      directPath.push(start);
+      
+      // Add a couple of intermediate points to try to avoid water
+      // Create intermediate points based on Manhattan path
+      const latDiff = (end[1] - start[1]) / 2;
+      const lngDiff = (end[0] - start[0]) / 2;
+      
+      // Add first intermediate point (go along latitude first)
+      directPath.push([start[0] + lngDiff, start[1]]);
+      
+      // Add second intermediate (move along longitude)
+      directPath.push([start[0] + lngDiff, start[1] + latDiff]);
+      
+      // Add final point
+      directPath.push(end);
+      
+      return directPath;
+    }
+  }
+    // Store raw CSV location data for later processing
+  async function parseCSV(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target.result;
+        // Properly parse CSV with comma as the delimiter
+        const rows = text.split('\n')
+          .map(row => row.trim())
+          .filter(row => row && !row.startsWith('<DOCUMENT') && !row.endsWith('</DOCUMENT>'))
+          .map(row => {
+            // Split by comma but preserve structure
+            return row.split(',')
+              // Trim each cell to remove extra whitespace
+              .map(cell => cell.trim())
+              // Keep only non-empty cells (actual location names)
+              .filter(cell => cell.length > 0);
+          });
+          
+        // Store the raw location names in csvData for later processing
+        window.csvData = rows;
+        csvPath = []; // Clear the processed path array
+        
+        updateDebug(`✅ CSV parsed with ${rows.length} rows of location names (will be processed when agent is selected)`);
+        resolve();
+      };
+      reader.onerror = () => reject(new Error('Failed to read CSV file'));
+      reader.readAsText(file);
+    });
+  }
+
+  // Initialize Three.js scene
+  function initScene() {
+    updateDebug("Initializing 3D scene...");
+    
+    // Create the scene
+    scene = new THREE.Scene();
+    
+    // Add lights for better visibility
+    const ambientLight = new THREE.AmbientLight(0xffffff, 2.0); // Increased brightness
+    scene.add(ambientLight);
+    
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0); // Increased brightness
+    directionalLight.position.set(0, 100, 100);
+    directionalLight.castShadow = true;
+    scene.add(directionalLight);
+    
+    // Setup camera with better initial position
+    camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+    camera.position.set(0, 150, 0); // Higher position for better view
+    
+    // Setup renderer with transparent background
+    renderer = new THREE.WebGLRenderer({ 
+      antialias: true, 
+      alpha: true,
+      canvas: document.createElement('canvas')
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.getElementById('simulationCanvas').appendChild(renderer.domElement);
+    
+    // Add orbit controls with adjusted settings
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.screenSpacePanning = false;
+    controls.maxPolarAngle = Math.PI / 2;
+    controls.minDistance = 5; // Allow camera to get much closer
+    controls.maxDistance = 500;
+    
+    // Initialize animation clock
+    clock = new THREE.Clock();
+
+    // Load Character with error handling
+    loadCharacterModel();
+    
+    // Start render loop
+    renderer.setAnimationLoop(render);
+  }
+  
+  // Render function
+  function render() {
+    // Update controls
+    controls.update();
+    
+    // Update mixer if available
+    if (mixer) {
+      const delta = clock.getDelta();
+      mixer.update(delta);
+    }
+    
+    // Render scene
+    renderer.render(scene, camera);
+  }
+  
+  // Load character model with fallbacks and error handling
+  function loadCharacterModel() {
+    updateDebug("Loading 3D character model...");
+    
+    // Create loader with loading manager
+    const loadingManager = new THREE.LoadingManager(
+      // onLoad
+      () => {
+        document.getElementById('loader').style.display = 'none';
+        updateDebug("✅ All assets loaded successfully");
+      },
+      // onProgress
+      (url, itemsLoaded, itemsTotal) => {
+        const progress = (itemsLoaded / itemsTotal * 100).toFixed(0);
+        updateDebug(`Loading: ${progress}% (${url})`);
+      },
+      // onError
+      (url) => {
+        console.error('Error loading', url);
+        updateDebug(`❌ Error loading ${url}`);
+      }
+    );
+    
+    const loader = new GLTFLoader(loadingManager);
+    
+    // Try loading the model
+    loader.load(
+      './models/agent2.glb',
+      (gltf) => {
+        updateDebug("✅ Model loaded, setting up character...");
+        
+        // Setup character model
+        characterModel = gltf.scene;
+        
+        // Set realistic human scale
+        characterModel.scale.set(characterScale, characterScale, characterScale);
+        
+        // Enable shadows and improve materials
+        characterModel.traverse((node) => {
+          if (node.isMesh) {
+            node.castShadow = true;
+            node.receiveShadow = true;
+            if (node.material) {
+              node.material.metalness = 0.3;
+              node.material.roughness = 0.5;
+              node.material.emissive = new THREE.Color(0x444444);
+              node.material.emissiveIntensity = 0.2;
+            }
+          }
+        });
+        
+        // Add to scene
+        scene.add(characterModel);
+        
+        // Position character at street level
+        characterModel.position.set(0, CHARACTER_GROUND_Y, 0); // Use constant
+        
+        // Setup animation
+        mixer = new THREE.AnimationMixer(characterModel);
+        if (gltf.animations && gltf.animations.length > 0) {
+          updateDebug(`Found ${gltf.animations.length} animations`);
+          animationAction = mixer.clipAction(gltf.animations[0]);
+          animationAction.timeScale = 1.0;
+          animationAction.play();
+        }
+        
+        modelLoaded = true;
+        
+        // Center camera on character with closer view
+        camera.position.set(0, 5, 10);
+        camera.lookAt(characterModel.position);
+        controls.target.copy(characterModel.position);
+        controls.update();
+      },
+      // Progress callback
+      (xhr) => {
+        const percent = xhr.loaded / xhr.total * 100;
+        updateDebug(`Loading model: ${percent.toFixed(1)}% complete`);
+      },
+      // Error callback
+      (error) => {
+        console.error('Error loading model:', error);
+        updateDebug("❌ Failed to load model. Character will not appear.");
+        // Keep loader visible or show error message only. Do not create fallback model.
+        document.getElementById('loader').innerHTML = `<div class="spinner"></div><div>Failed to load 3D character model.</div>`;
+      }
+    );
+  }
+  
+  // Setup MapBox map
+  function setupMap() {
+    updateDebug("Setting up MapBox...");
+    
+    mapboxgl.accessToken = MAPBOX_ACCESS_TOKEN;
+    
+    map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      center: startCoord,
+      zoom: 29,
+      pitch: 60,
+      bearing: -30,
+      antialias: true
+    });
+    
+    map.addControl(new mapboxgl.NavigationControl());
+    
+    // Setup map features on load
+    map.on('load', async () => {
+      // If no route is set yet, use the default route
+      if (routePoints.length === 0) {
+        routePoints = await getRoute(startCoord, endCoord);
+      }
+      // Remove 3D terrain setup (flat ground)
+      // map.addSource('mapbox-dem', { ... });
+      // map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+      // Create fallback textures directly instead of loading external images
+      createFallbackBuildingTextures();
+      // Prepare park data
+      addParksAndGreenSpace();
+      // Add 3D buildings with realistic colors instead of textures
+      addRealistic3DBuildings();
+      // Continue with route visualization
+      addRouteVisualization();
+    });
+  }
+
+  function createFallbackBuildingTextures() {
+    const windowSize = 64;
+    const glassSize = 64;
+    
+    const windowCanvas = document.createElement('canvas');
+    windowCanvas.width = windowSize;
+    windowCanvas.height = windowSize;
+    const windowCtx = windowCanvas.getContext('2d');
+    windowCtx.fillStyle = '#f5f5f5';
+    windowCtx.fillRect(0, 0, windowSize, windowSize);
+    
+    windowCtx.fillStyle = '#2c3e50';
+    for (let y = 0; y < 4; y++) {
+      for (let x = 0; x < 4; x++) {
+        windowCtx.fillRect(x * 16 + 2, y * 16 + 2, 12, 12);
+      }
+    }
+    
+    const glassCanvas = document.createElement('canvas');
+    glassCanvas.width = glassSize;
+    glassCanvas.height = glassSize;
+    const glassCtx = glassCanvas.getContext('2d');
+    
+    const gradient = glassCtx.createLinearGradient(0, 0, glassSize, glassSize);
+    gradient.addColorStop(0, '#74b9ff');
+    gradient.addColorStop(0.5, '#a0d2f7');
+    gradient.addColorStop(1, '#74b9ff');
+    glassCtx.fillStyle = gradient;
+    glassCtx.fillRect(0, 0, glassSize, glassSize);
+    
+    map.addImage('building-windows', { width: windowSize, height: windowSize, data: windowCtx.getImageData(0, 0, windowSize, windowSize).data });
+    map.addImage('building-glass', { width: glassSize, height: glassSize, data: glassCtx.getImageData(0, 0, glassSize, glassSize).data });
+  }
+
+  function addParksAndGreenSpace() {
+    map.addLayer({
+      'id': 'parks',
+      'type': 'fill',
+      'source': 'composite',
+      'source-layer': 'landuse',
+      'filter': [
+        'any',
+        ['==', ['get', 'class'], 'park'],
+        ['==', ['get', 'class'], 'grass'],
+        ['==', ['get', 'class'], 'garden'],
+        ['==', ['get', 'class'], 'wood']
+      ],
+      'paint': {
+        'fill-color': '#75b956',
+        'fill-opacity': 0.7
+      }
+    });
+  }
+
+  function addRealistic3DBuildings() {
+    map.addLayer({
+      'id': '3d-buildings',
+      'source': 'composite',
+      'source-layer': 'building',
+      'filter': ['==', ['get', 'extrude'], 'true'],
+      'type': 'fill-extrusion',
+      'minzoom': 15,
+      'paint': {
+        'fill-extrusion-color': [
+          'match',
+          ['get', 'type'],
+          'commercial', '#E8E1C8', 
+          'office', '#D9D1C0',
+          'retail', '#E2D9C3',
+          'residential', '#E0DED3',
+          'hotel', '#D4CCB9',
+          [
+            'interpolate',
+            ['linear'],
+            ['coalesce', ['get', 'height'], 15],
+            0, '#D9D0BF',
+            50, '#D1CCC0',
+            100, '#C8C4BB',
+            200, '#B8B4AB',
+            300, '#A8A49B'
+          ]
+        ],
+        'fill-extrusion-height': ['coalesce', ['get', 'height'], 15],
+        'fill-extrusion-base': ['coalesce', ['get', 'min_height'], 0],
+        'fill-extrusion-opacity': 1.0,
+        'fill-extrusion-vertical-gradient': true
+      }
+    });
+  }
+
+  function addRouteVisualization() {
+    map.addSource('route', {
+      'type': 'geojson',
+      'data': {
+        'type': 'Feature',
+        'properties': {},
+        'geometry': {
+          'type': 'LineString',
+          'coordinates': routePoints
+        }
+      }
+    });
+    
+    map.addLayer({
+      'id': 'route-line',
+      'type': 'line',
+      'source': 'route',
+      'layout': {
+        'line-join': 'round',
+        'line-cap': 'round'
+      },
+      'paint': {
+        'line-color': '#ff6b6b',
+        'line-width': 8,
+        'line-opacity': 0.8
+      }
+    });
+    
+    map.addLayer({
+      'id': 'route-glow',
+      'type': 'line',
+      'source': 'route',
+      'layout': {
+        'line-join': 'round',
+        'line-cap': 'round'
+      },
+      'paint': {
+        'line-color': '#fab1a0',
+        'line-width': 14,
+        'line-opacity': 0.4,
+        'line-blur': 5
+      }
+    }, 'route-line');
+    
+    new mapboxgl.Marker({ color: '#00b894' }).setLngLat(startCoord).addTo(map);
+    new mapboxgl.Marker({ color: '#d63031' }).setLngLat(endCoord).addTo(map);
+    
+    updateDebug("Map setup complete with route from Graphhopper or CSV");
+  }
+  // Process a specific row of CSV data into road-based routes
+  async function processCSVRow(rowIndex) {
+    updateDebug(`Processing locations for agent ${rowIndex + 1}...`);
+    
+    if (!window.csvData || rowIndex >= window.csvData.length) {
+      updateDebug('❌ No CSV data available for this agent number');
+      return null;
+    }
+    
+    const row = window.csvData[rowIndex];
+    updateDebug(`Found ${row.length} valid locations for agent ${rowIndex + 1}`);
+    
+    // First get all the coordinates for this row
+    const rawCoords = [];
+    for (let i = 0; i < row.length; i++) {
+      // Skip empty strings or location names with no content
+      if (!row[i] || row[i].trim() === '') continue;
+      
+      updateDebug(`Geocoding location ${i+1}/${row.length}: ${row[i]}...`);
+      const coord = await geocodeLocation(row[i]);
+      if (coord) rawCoords.push(coord);
+    }
+    
+    updateDebug(`Successfully geocoded ${rawCoords.length} locations for agent ${rowIndex + 1}`);
+    
+    // If we have at least 2 points, create road-based routes between each pair of points
+    if (rawCoords.length > 1) {
+      const roadBasedPath = [];
+      
+      // For each pair of consecutive points
+      for (let i = 0; i < rawCoords.length - 1; i++) {
+        updateDebug(`Creating road path ${i+1}/${rawCoords.length-1} for agent ${rowIndex + 1}...`);
+        const start = rawCoords[i];
+        const end = rawCoords[i+1];
+        
+        // Get road-based route between these two points
+        const routeSegment = await getRoute(start, end);
+        
+        // Add all points except the last one (to avoid duplicates)
+        if (i === 0) {
+          // For first segment, add all points
+          roadBasedPath.push(...routeSegment);
+        } else {
+          // For subsequent segments, skip the first point to avoid duplicates
+          roadBasedPath.push(...routeSegment.slice(1));
+        }
+      }
+      
+      updateDebug(`✅ Road-based route created for agent ${rowIndex + 1} with ${roadBasedPath.length} points`);
+      return roadBasedPath;
+    }
+    
+    return null;
+  }
+  // Start the simulation
+  function startSimulation() {
+    if (!modelLoaded) {
+      updateDebug("Waiting for model to load...");
+      setTimeout(startSimulation, 500);
+      return;
+    }
+    
+    // Check if we have route points, if not and we have CSV data, process the selected row
+    if (routePoints.length === 0) {
+      if (window.csvData && window.csvData.length > 0) {
+        // Get the selected agent number
+        const agentCount = parseInt(document.getElementById('blue-agents').value);
+        const selectedRow = Math.max(0, Math.min(agentCount - 1, window.csvData.length - 1));
+        
+        updateDebug(`No route set. Processing agent ${selectedRow + 1} automatically...`);
+        // Show loader while processing
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('loader').innerHTML = `
+          <div class="spinner"></div>
+          <div>Processing locations for agent ${selectedRow + 1}...</div>
+        `;
+        
+        // Process the row and then start the simulation
+        processCSVRow(selectedRow).then((processedRoute) => {
+          if (processedRoute && processedRoute.length > 0) {
+            routePoints = processedRoute;
+            
+            // Update the map route if map is initialized
+            if (map && map.getSource('route')) {
+              map.getSource('route').setData({
+                'type': 'Feature',
+                'properties': {},
+                'geometry': {
+                  'type': 'LineString',
+                  'coordinates': routePoints
+                }
+              });
+            }
+            
+            document.getElementById('loader').style.display = 'none';
+            updateDebug(`✅ Route created for agent ${selectedRow + 1}, starting simulation...`);
+            // Continue with simulation now that we have route points
+            startAnimationLoop();
+          } else {
+            document.getElementById('loader').style.display = 'none';
+            updateDebug("❌ Could not create route from CSV data. Using default route.");
+            // Use default route as fallback
+            getRoute(startCoord, endCoord).then((defaultRoute) => {
+              routePoints = defaultRoute;
+              startAnimationLoop();
+            });
+          }
+        }).catch((error) => {
+          document.getElementById('loader').style.display = 'none';
+          console.error('Error processing CSV row:', error);
+          updateDebug(`❌ Error processing CSV: ${error.message}. Using default route.`);
+          // Use default route as fallback
+          getRoute(startCoord, endCoord).then((defaultRoute) => {
+            routePoints = defaultRoute;
+            startAnimationLoop();
+          });
+        });
+        return;
+      } else {
+        // No CSV data, use default route
+        updateDebug("No CSV data loaded. Using default route...");
+        getRoute(startCoord, endCoord).then((defaultRoute) => {
+          routePoints = defaultRoute;
+          startAnimationLoop();
+        });
+        return;
+      }
+    } else {
+      // Route points already set, start animation directly
+      startAnimationLoop();
+    }
+  }
+  
+  // Animation loop (extracted from startSimulation for better organization)
+  function startAnimationLoop() {
+    updateDebug("Starting animation...");
+    
+    // Cancel any existing animation
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+    }
+
+    let currentPointIndex = 0;
+    let progress = 0;
+    
+    function animate() {
+      animationId = requestAnimationFrame(animate);
+      
+      if (characterModel && currentPointIndex < routePoints.length - 1) {
+        // Get current and next points
+        const currentPoint = routePoints[currentPointIndex];
+        const nextPoint = routePoints[currentPointIndex + 1];
+        
+        // Convert to world coordinates
+        const currentWorld = lngLatToWorld(currentPoint[0], currentPoint[1]);
+        const nextWorld = lngLatToWorld(nextPoint[0], nextPoint[1]);
+        
+        // Interpolate between points
+        const posX = currentWorld.x + (nextWorld.x - currentWorld.x) * progress;
+        const posZ = currentWorld.z + (nextWorld.z - currentWorld.z) * progress;
+        
+        // Position character at street level
+        characterModel.position.set(posX, CHARACTER_GROUND_Y, posZ); // Use constant
+        
+        // Make character face direction of travel
+        const angle = Math.atan2(nextWorld.z - currentWorld.z, nextWorld.x - currentWorld.x);
+        characterModel.rotation.y = angle;
+        
+        // Update camera to follow character from behind with 60 degree pitch
+        const cameraDistance = 12;
+        const cameraHeight = characterScale * 1.0 + 0.5;
+        const cameraOffsetX = -Math.sin(angle) * cameraDistance;
+        const cameraOffsetZ = -Math.cos(angle) * cameraDistance;
+        
+        camera.position.set(
+          characterModel.position.x + cameraOffsetX,
+          characterModel.position.y + cameraHeight,
+          characterModel.position.z + cameraOffsetZ
+        );
+        
+        const lookAheadDistance = 90;
+        const lookAtYOffset = cameraHeight + 5;
+        const targetLookAtPosition = new THREE.Vector3(
+          characterModel.position.x + Math.sin(angle) * lookAheadDistance,
+          characterModel.position.y + lookAtYOffset,
+          characterModel.position.z + Math.cos(angle) * lookAheadDistance
+        );
+        
+        camera.lookAt(targetLookAtPosition);
+        controls.target.copy(targetLookAtPosition);
+        controls.update();
+        
+        // Update progress
+        progress += animationSpeed * 2;
+        
+        // Move to next point when progress complete
+        if (progress >= 1) {
+          currentPointIndex++;
+          progress = 0;
+        }
+        
+        // Update map position and bearing
+        const currentLng = currentPoint[0] + (nextPoint[0] - currentPoint[0]) * progress;
+        const currentLat = currentPoint[1] + (nextPoint[1] - currentPoint[1]) * progress;
+        
+        const bearing = Math.atan2(nextPoint[0] - currentPoint[0], nextPoint[1] - currentPoint[1]) * (180 / Math.PI);
+        map.setCenter([currentLng, currentLat]);
+        map.setBearing(bearing);
+        map.setPitch(80);
+        
+        // Update debug info
+        const totalProgress = (currentPointIndex + progress) / (routePoints.length - 1);
+        if (Math.floor(totalProgress * 100) % 5 === 0) {
+          updateDebug(
+            `Progress: ${Math.floor(totalProgress * 100)}%<br>
+            Position: [${currentLng.toFixed(6)}, ${currentLat.toFixed(6)}]<br>
+            3D Position: X:${posX.toFixed(1)}, Y:${characterModel.position.y.toFixed(1)}, Z:${posZ.toFixed(1)}`
+          );
+        }
+      } else if (currentPointIndex >= routePoints.length - 1) {
+        updateDebug("Animation complete!");
+      }
+    }
+    
+    animate();
+  }
+  
+  // Reset view
+  function resetView() {
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+    }
+    
+    if (map) {
+      map.flyTo({
+        center: startCoord,
+        zoom: 16,
+        pitch: 80,
+        bearing: -30,
+        duration: 1000
+      });
+    }
+    
+    if (characterModel) {
+      const start = lngLatToWorld(...startCoord);
+      characterModel.position.set(start.x, CHARACTER_GROUND_Y, start.z); // Use constant
+    }
+    
+    // Reset camera
+    camera.position.set(0, 100, 200);
+    camera.lookAt(0, 0, 0);
+    if (controls) controls.update();
+    
+    updateDebug("View reset");
+  }
+  
+  // Handle window resizing
+  window.addEventListener('resize', () => {
+    if (camera && renderer) {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+  });
+
+  // Setup sidebar and event listeners
+  function setupSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    const sidebarClose = document.getElementById('sidebar-close');
+    const modelFile = document.getElementById('model-file');
+    const blueAgents = document.getElementById('blue-agents');
+    const applySettings = document.getElementById('apply-settings');
+
+    sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('active'));
+    sidebarClose.addEventListener('click', () => sidebar.classList.remove('active'));    modelFile.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file && file.type === 'text/csv') {
+        updateDebug(`Processing CSV file: ${file.name}...`);
+        parseCSV(file).then(() => {
+          // Display more detailed information about the CSV
+          const totalLocations = window.csvData.reduce((sum, row) => sum + row.length, 0);
+          const avgLocations = (totalLocations / window.csvData.length).toFixed(1);
+          updateDebug(`✅ CSV file uploaded: ${window.csvData.length} rows detected with an average of ${avgLocations} locations per row`);
+        }).catch(err => updateDebug(`❌ ${err.message}`));
+      } else {
+        updateDebug('❌ Please upload a valid CSV file');
+      }
+    });applySettings.addEventListener('click', async () => {
+      const agentCount = parseInt(blueAgents.value);      if (agentCount >= 1 && agentCount <= 20) {
+        const selectedRow = agentCount - 1; // 0-based index
+        if (window.csvData && window.csvData.length > selectedRow) {
+          const locationCount = window.csvData[selectedRow].length;
+          updateDebug(`Processing selected agent ${agentCount} with ${locationCount} locations...`);
+          
+          // Show loader while processing
+          document.getElementById('loader').style.display = 'block';
+          document.getElementById('loader').innerHTML = `
+            <div class="spinner"></div>
+            <div>Processing ${locationCount} locations for agent ${agentCount}...</div>
+          `;
+          
+          // Process the selected row (geocode and create road-based routes)
+          try {
+            const processedRoute = await processCSVRow(selectedRow);
+            
+            if (processedRoute && processedRoute.length > 0) {
+              // Update the route points
+              routePoints = processedRoute;
+              
+              // Update the map route if map is initialized
+              if (map && map.getSource('route')) {
+                map.getSource('route').setData({
+                  'type': 'Feature',
+                  'properties': {},
+                  'geometry': {
+                    'type': 'LineString',
+                    'coordinates': routePoints
+                  }
+                });
+                
+                // Fly to the start of the route
+                map.flyTo({
+                  center: routePoints[0],
+                  zoom: 16,
+                  pitch: 60,
+                  bearing: -30,
+                  duration: 1000
+                });
+              }
+              
+              updateDebug(`✅ Agent ${agentCount} route created with ${routePoints.length} points`);
+            } else {
+              updateDebug(`❌ Could not create route for agent ${agentCount}`);
+            }
+          } catch (error) {
+            console.error('Error processing CSV row:', error);
+            updateDebug(`❌ Error processing agent ${agentCount}: ${error.message}`);
+          } finally {
+            // Hide loader
+            document.getElementById('loader').style.display = 'none';
+          }
+        } else {
+          updateDebug('❌ CSV data not available for selected agent number');
+        }
+      } else {
+        updateDebug('❌ Please select a number between 1 and 20');
+      }
+    });
+  }
+
+  // Initialize sidebar on page load
+  document.addEventListener('DOMContentLoaded', setupSidebar);
+
+  // Setup button handlers
+  document.getElementById('startBtn').addEventListener('click', () => {
+    setupMap();
+    initScene();
+    setTimeout(() => startSimulation(), 2000);
+  });
+  
+  document.getElementById('resetBtn').addEventListener('click', resetView);
+  
+  </script>
+</body>
+</html>
